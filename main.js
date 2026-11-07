@@ -121,6 +121,7 @@ const buildingColors = [0x888888, 0x9b8065, 0x777f8a, 0xb5a28c];
 for (let x = -100; x <= 100; x += 30) {
   for (let z = -100; z <= 100; z += 30) {
     if (Math.abs(x) < 15 || Math.abs(z) < 15) continue;
+
     makeBuilding(
       x, z, 12, 10 + Math.random() * 22, 12,
       buildingColors[Math.floor(Math.random() * buildingColors.length)]
@@ -174,7 +175,7 @@ let brakeLights = [];
 let headlightsOn = false;
 let turnSignal = 'off';
 
-// Rounded LED lens made from a scaled sphere
+// Rounded LED lens
 function makeRoundedLight(color, width, height, depth, x, y, z, parent) {
   const material = new THREE.MeshBasicMaterial({
     color,
@@ -193,61 +194,119 @@ function makeRoundedLight(color, width, height, depth, x, y, z, parent) {
   return lens;
 }
 
-// Convert model mesh bounds to vehicle-local coordinates
-function getVehicleBounds(object) {
-  const box = new THREE.Box3().setFromObject(object);
-
-  const corners = [
-    new THREE.Vector3(box.min.x, box.min.y, box.min.z),
-    new THREE.Vector3(box.min.x, box.min.y, box.max.z),
-    new THREE.Vector3(box.min.x, box.max.y, box.min.z),
-    new THREE.Vector3(box.min.x, box.max.y, box.max.z),
-    new THREE.Vector3(box.max.x, box.min.y, box.min.z),
-    new THREE.Vector3(box.max.x, box.min.y, box.max.z),
-    new THREE.Vector3(box.max.x, box.max.y, box.min.z),
-    new THREE.Vector3(box.max.x, box.max.y, box.max.z)
-  ];
+// Calculate accurate vehicle-local bounds from individual mesh geometry
+function getVehicleBounds(model) {
+  model.updateWorldMatrix(true, true);
+  policeCar.updateWorldMatrix(true, true);
 
   const localBox = new THREE.Box3();
+  const corners = [];
 
-  for (const corner of corners) {
-    policeCar.worldToLocal(corner);
-    localBox.expandByPoint(corner);
+  for (let i = 0; i < 8; i++) {
+    corners.push(new THREE.Vector3());
   }
+
+  model.traverse((child) => {
+    if (!child.isMesh || !child.geometry) return;
+
+    if (!child.geometry.boundingBox) {
+      child.geometry.computeBoundingBox();
+    }
+
+    const geometryBox = child.geometry.boundingBox;
+    if (!geometryBox || geometryBox.isEmpty()) return;
+
+    const min = geometryBox.min;
+    const max = geometryBox.max;
+
+    corners[0].set(min.x, min.y, min.z);
+    corners[1].set(min.x, min.y, max.z);
+    corners[2].set(min.x, max.y, min.z);
+    corners[3].set(min.x, max.y, max.z);
+    corners[4].set(max.x, min.y, min.z);
+    corners[5].set(max.x, min.y, max.z);
+    corners[6].set(max.x, max.y, min.z);
+    corners[7].set(max.x, max.y, max.z);
+
+    for (const corner of corners) {
+      corner.applyMatrix4(child.matrixWorld);
+      policeCar.worldToLocal(corner);
+      localBox.expandByPoint(corner);
+    }
+  });
 
   return localBox;
 }
 
-// Search the actual model for named headlight and taillight meshes
-function findLightParts(model, words) {
-  const matches = [];
+// Find the actual body surface by raycasting against the model
+function findBodySurface(modelMeshes, bounds, x, isFront) {
+  const raycaster = new THREE.Raycaster();
 
-  model.traverse((child) => {
-    if (!child.isMesh) return;
+  const outsideZ = isFront
+    ? bounds.min.z - 3
+    : bounds.max.z + 3;
 
-    const name = child.name.toLowerCase();
+  const direction = new THREE.Vector3(
+    0,
+    0,
+    isFront ? 1 : -1
+  );
 
-    if (!words.some(word => name.includes(word))) return;
+  const heightFractions = [0.62, 0.58, 0.66, 0.54, 0.70];
+  let bestPoint = null;
+  let bestScore = Infinity;
 
-    child.updateWorldMatrix(true, false);
+  for (const fraction of heightFractions) {
+    const targetY = bounds.min.y +
+      (bounds.max.y - bounds.min.y) * fraction;
 
-    const box = new THREE.Box3().setFromObject(child);
-    if (box.isEmpty()) return;
+    const localOrigin = new THREE.Vector3(x, targetY, outsideZ);
+    const worldOrigin = policeCar.localToWorld(localOrigin.clone());
 
-    const center = box.getCenter(new THREE.Vector3());
-    policeCar.worldToLocal(center);
+    const worldDirection = policeCar.localToWorld(
+      localOrigin.clone().add(direction)
+    ).sub(worldOrigin).normalize();
 
-    matches.push({
-      x: center.x,
-      y: center.y,
-      z: center.z,
-      name: child.name
-    });
-  });
+    raycaster.set(worldOrigin, worldDirection);
 
-  return matches;
+    const hits = raycaster.intersectObjects(modelMeshes, false);
+
+    if (hits.length === 0) continue;
+
+    const localHit = policeCar.worldToLocal(
+      hits[0].point.clone()
+    );
+
+    const score = Math.abs(localHit.y - targetY);
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestPoint = localHit.clone();
+    }
+  }
+
+  // Safe fallback if the model has no surface at the sampled position
+  if (!bestPoint) {
+    const y = bounds.min.y +
+      (bounds.max.y - bounds.min.y) * 0.62;
+
+    bestPoint = new THREE.Vector3(
+      x,
+      y,
+      isFront ? bounds.min.z : bounds.max.z
+    );
+  }
+
+  return bestPoint;
 }
 
+// Convert a point from vehicle coordinates into model coordinates
+function vehiclePointToModel(model, point) {
+  const worldPoint = policeCar.localToWorld(point.clone());
+  return model.worldToLocal(worldPoint);
+}
+
+// Create a spotlight pointing forward
 function makeSpotlight(x, y, z, targetZ) {
   const beam = new THREE.SpotLight(
     0xffffff,
@@ -259,7 +318,7 @@ function makeSpotlight(x, y, z, targetZ) {
   );
 
   beam.position.set(x, y, z);
-  beam.target.position.set(x, y - 0.5, targetZ);
+  beam.target.position.set(x, y - 0.2, targetZ);
   beam.visible = false;
 
   policeCar.add(beam);
@@ -268,7 +327,7 @@ function makeSpotlight(x, y, z, targetZ) {
   return beam;
 }
 
-// INSTALL LIGHTS USING THE MODEL'S REAL GEOMETRY
+// INSTALL LIGHTS USING ACTUAL MODEL SURFACES
 function installVehicleLights(model) {
   headlights = [];
   daytimeLights = [];
@@ -276,78 +335,56 @@ function installVehicleLights(model) {
   rightSignals = [];
   brakeLights = [];
 
-  policeCar.updateMatrixWorld(true);
+  model.updateWorldMatrix(true, true);
+  policeCar.updateWorldMatrix(true, true);
 
-  const box = getVehicleBounds(model);
-  const min = box.min;
-  const max = box.max;
+  const bounds = getVehicleBounds(model);
 
-  const width = max.x - min.x;
-  const height = max.y - min.y;
-  const length = max.z - min.z;
+  const width = bounds.max.x - bounds.min.x;
+  const height = bounds.max.y - bounds.min.y;
 
-  // The Explorer faces negative Z
-  const frontZ = min.z;
-  const rearZ = max.z;
+  const modelMeshes = [];
 
-  // Look for actual named light parts in the 3D model
-  const namedFront = findLightParts(model, [
-    'headlight', 'head_light', 'frontlamp', 'front_lamp'
-  ]);
+  model.traverse((child) => {
+    if (child.isMesh && child.geometry) {
+      modelMeshes.push(child);
+    }
+  });
 
-  const namedRear = findLightParts(model, [
-    'taillight', 'tail_light', 'rear_lamp', 'rearlight'
-  ]);
+  // The Explorer faces negative Z.
+  // Negative X is the driver's left side.
+  const leftX = bounds.min.x + width * 0.29;
+  const rightX = bounds.max.x - width * 0.29;
 
-  console.log('Explorer front light parts:', namedFront);
-  console.log('Explorer rear light parts:', namedRear);
+  // Raycast to find the actual front and rear body surfaces.
+  const frontLeft = findBodySurface(modelMeshes, bounds, leftX, true);
+  const frontRight = findBodySurface(modelMeshes, bounds, rightX, true);
 
-  // If the model has named lamp meshes, use their positions.
-  // Otherwise, calculate positions from the vehicle dimensions.
-  const frontCandidates = namedFront.length >= 2
-    ? namedFront.sort((a, b) => a.x - b.x).slice(0, 2)
-    : [
-        {
-          x: min.x + width * 0.20,
-          y: min.y + height * 0.39,
-          z: frontZ
-        },
-        {
-          x: max.x - width * 0.20,
-          y: min.y + height * 0.39,
-          z: frontZ
-        }
-      ];
+  const rearLeft = findBodySurface(modelMeshes, bounds, leftX, false);
+  const rearRight = findBodySurface(modelMeshes, bounds, rightX, false);
 
-  const rearCandidates = namedRear.length >= 2
-    ? namedRear.sort((a, b) => a.x - b.x).slice(0, 2)
-    : [
-        {
-          x: min.x + width * 0.20,
-          y: min.y + height * 0.40,
-          z: rearZ
-        },
-        {
-          x: max.x - width * 0.20,
-          y: min.y + height * 0.40,
-          z: rearZ
-        }
-      ];
+  console.log('Explorer vehicle bounds:', bounds);
+  console.log('Front left surface:', frontLeft);
+  console.log('Front right surface:', frontRight);
+  console.log('Rear left surface:', rearLeft);
+  console.log('Rear right surface:', rearRight);
 
-  // Front lights: left and right
-  const frontLeft = frontCandidates[0];
-  const frontRight = frontCandidates[1];
-
+  // FRONT HEADLIGHTS
   for (const point of [frontLeft, frontRight]) {
+    const lensPoint = point.clone();
+    lensPoint.z -= 0.035;
+
+    const modelPoint = vehiclePointToModel(model, lensPoint);
+
     const lens = makeRoundedLight(
       0xffffff,
-      width * 0.105,
-      height * 0.045,
+      width * 0.115,
+      height * 0.052,
       0.045,
-      point.x,
-      point.y,
-      point.z - 0.035,
-      policeCar
+      modelPoint.x,
+      modelPoint.y,
+      modelPoint.z,
+      model
     );
 
     headlights.push(lens);
@@ -362,69 +399,89 @@ function installVehicleLights(model) {
     headlights.push(beam);
   }
 
-  // Slim white daytime running lights
+  // DAYTIME RUNNING LIGHTS
   for (const point of [frontLeft, frontRight]) {
+    const drlPoint = point.clone();
+    drlPoint.y -= height * 0.035;
+    drlPoint.z -= 0.045;
+
+    const modelPoint = vehiclePointToModel(model, drlPoint);
+
     const drl = makeRoundedLight(
       0xe8fbff,
-      width * 0.15,
-      height * 0.018,
+      width * 0.13,
+      height * 0.022,
       0.035,
-      point.x,
-      point.y - height * 0.045,
-      point.z - 0.045,
-      policeCar
+      modelPoint.x,
+      modelPoint.y,
+      modelPoint.z,
+      model
     );
 
     daytimeLights.push(drl);
   }
 
-  // Front and rear indicators are grouped by vehicle side.
-  // Negative X is the vehicle's left side.
-  function makeIndicator(point, front) {
+  // TURN SIGNALS
+  function makeIndicator(point, isFront) {
+    const signalPoint = point.clone();
+
+    // Put the lens just outside the vehicle surface.
+    signalPoint.z += isFront ? -0.055 : 0.055;
+
+    const modelPoint = vehiclePointToModel(model, signalPoint);
+
     const signal = makeRoundedLight(
       0xffa000,
-      width * 0.065,
-      height * 0.035,
+      width * 0.075,
+      height * 0.045,
       0.045,
-      point.x,
-      point.y,
-      front ? point.z - 0.065 : point.z + 0.065,
-      policeCar
+      modelPoint.x,
+      modelPoint.y,
+      modelPoint.z,
+      model
     );
 
     signal.visible = false;
     return signal;
   }
 
-  // LEFT: front AND rear
   leftSignals.push(makeIndicator(frontLeft, true));
-  leftSignals.push(makeIndicator(rearCandidates[0], false));
+  leftSignals.push(makeIndicator(rearLeft, false));
 
-  // RIGHT: front AND rear
   rightSignals.push(makeIndicator(frontRight, true));
-  rightSignals.push(makeIndicator(rearCandidates[1], false));
+  rightSignals.push(makeIndicator(rearRight, false));
 
-  // Rear brake lights, placed slightly inward from the indicators
-  for (const point of rearCandidates) {
+  // REAR BRAKE LIGHTS
+  for (const point of [rearLeft, rearRight]) {
+    const brakePoint = point.clone();
+
+    // Keep brake lamps close to the taillight height.
+    brakePoint.x *= 0.72;
+    brakePoint.y -= height * 0.025;
+    brakePoint.z += 0.065;
+
+    const modelPoint = vehiclePointToModel(model, brakePoint);
+
     const brake = makeRoundedLight(
       0x550000,
-      width * 0.11,
-      height * 0.06,
+      width * 0.105,
+      height * 0.055,
       0.045,
-      point.x,
-      point.y - height * 0.07,
-      point.z + 0.07,
-      policeCar
+      modelPoint.x,
+      modelPoint.y,
+      modelPoint.z,
+      model
     );
 
     brake.userData.dimColor = 0x550000;
     brake.userData.brightColor = 0xff1010;
+
     brakeLights.push(brake);
   }
 
   updateVehicleLights();
 
-  console.log('Modern Explorer lighting installed!');
+  console.log('Explorer surface-based lighting installed.');
 }
 
 // UPDATE HEADLIGHTS AND DAYTIME RUNNING LIGHTS
@@ -461,6 +518,7 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
+    // Preserve the working Explorer orientation and scale.
     model.rotation.y = Math.PI;
 
     const originalBox = new THREE.Box3().setFromObject(model);
@@ -669,7 +727,7 @@ function animate() {
     message.textContent = 'Press E to exit';
   }
 
-  // BOTH FRONT AND REAR SIGNALS FLASH TOGETHER
+  // FRONT AND REAR SIGNALS FLASH TOGETHER
   const signalFlash = Math.floor(performance.now() / 450) % 2 === 0;
 
   leftSignals.forEach(light => {
