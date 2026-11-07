@@ -119,11 +119,7 @@ for (let x = -100; x <= 100; x += 30) {
     if (Math.abs(x) < 15 || Math.abs(z) < 15) continue;
 
     makeBuilding(
-      x,
-      z,
-      12,
-      10 + Math.random() * 22,
-      12,
+      x, z, 12, 10 + Math.random() * 22, 12,
       buildingColors[Math.floor(Math.random() * buildingColors.length)]
     );
   }
@@ -133,8 +129,6 @@ for (let x = -100; x <= 100; x += 30) {
 const policeCar = new THREE.Group();
 scene.add(policeCar);
 policeCar.position.set(6, 0, 8);
-
-let carModelLoaded = false;
 
 function makeTemporaryCar() {
   const body = new THREE.Mesh(
@@ -157,7 +151,6 @@ function makeTemporaryCar() {
         new THREE.CylinderGeometry(0.4, 0.4, 0.25, 20),
         new THREE.MeshStandardMaterial({ color: 0x111111 })
       );
-
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(x, 0.45, z);
       policeCar.add(wheel);
@@ -189,10 +182,7 @@ const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath(
   'https://www.gstatic.com/draco/versioned/decoders/1.5.7/'
 );
-
 loader.setDRACOLoader(dracoLoader);
-
-console.log('Draco decoder connected:', loader.dracoLoader);
 
 loader.load(
   './police_explorer.glb',
@@ -204,22 +194,25 @@ loader.load(
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    const scale = 5.2 / Math.max(size.x, size.z);
+    // MAKE THE EXPLORER BIGGER
+    const scale = 8.5 / Math.max(size.x, size.z);
     model.scale.setScalar(scale);
 
     model.position.x = -center.x * scale;
     model.position.y = -box.min.y * scale;
     model.position.z = -center.z * scale;
 
+    // TURN THE EXPLORER AROUND 180 DEGREES
+    model.rotation.y = Math.PI;
+
+    // REMOVE TEMPORARY CAR
     while (policeCar.children.length > 2) {
       policeCar.remove(policeCar.children[0]);
     }
 
     policeCar.add(model);
 
-    carModelLoaded = true;
     message.textContent = 'Ford Explorer loaded!';
-
     console.log('Ford Explorer loaded successfully!');
   },
 
@@ -234,7 +227,7 @@ loader.load(
 
   (error) => {
     console.error('FORD EXPLORER LOADING ERROR:', error);
-    message.textContent = 'Explorer failed to load. Check console.';
+    message.textContent = 'Explorer failed to load!';
   }
 );
 
@@ -244,7 +237,6 @@ let pitch = 0;
 let driving = false;
 let carSpeed = 0;
 let emergencyLights = true;
-
 const keys = {};
 
 window.addEventListener('keydown', (event) => {
@@ -367,7 +359,6 @@ function animate() {
     );
 
     camera.position.copy(policeCar.position).add(offset);
-
     camera.lookAt(
       policeCar.position.x,
       policeCar.position.y + 1,
