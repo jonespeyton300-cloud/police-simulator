@@ -189,7 +189,6 @@ loader.load(
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    // Normalize model size
     const scale = 5.2 / Math.max(size.x, size.z);
     model.scale.setScalar(scale);
 
@@ -197,18 +196,25 @@ loader.load(
     model.position.y = -box.min.y * scale;
     model.position.z = -center.z * scale;
 
-    // Remove temporary vehicle
     while (policeCar.children.length > 2) {
       policeCar.remove(policeCar.children[0]);
     }
 
     policeCar.add(model);
+
     carModelLoaded = true;
     message.textContent = 'Ford Explorer loaded!';
+    console.log('Ford Explorer loaded successfully!');
   },
-  undefined,
+  (progress) => {
+    console.log(
+      'Loading Explorer:',
+      Math.round((progress.loaded / progress.total) * 100) + '%'
+    );
+  },
   (error) => {
-    console.log('Explorer model not uploaded yet. Using temporary car.');
+    console.error('FORD EXPLORER LOADING ERROR:', error);
+    message.textContent = 'Explorer failed to load. Check console.';
   }
 );
 
