@@ -38,8 +38,8 @@ WASD - Move / Drive<br>
 Mouse - Look around<br>
 E - Enter / Exit vehicle<br>
 H - Headlights On / Off<br>
-&lt; - Left Signal<br>
-&gt; - Right Signal<br>
+Shift + , - Left Signal<br>
+Shift + . - Right Signal<br>
 B - Cancel Signals<br>
 <span id="status">ON FOOT</span><br>
 <span id="lightStatus">DAYTIME RUNNING LIGHTS</span>
@@ -121,7 +121,6 @@ const buildingColors = [0x888888, 0x9b8065, 0x777f8a, 0xb5a28c];
 for (let x = -100; x <= 100; x += 30) {
   for (let z = -100; z <= 100; z += 30) {
     if (Math.abs(x) < 15 || Math.abs(z) < 15) continue;
-
     makeBuilding(
       x, z, 12, 10 + Math.random() * 22, 12,
       buildingColors[Math.floor(Math.random() * buildingColors.length)]
@@ -165,7 +164,7 @@ function makeTemporaryCar() {
 
 makeTemporaryCar();
 
-// VEHICLE LIGHT REFERENCES
+// VEHICLE LIGHTS
 let headlights = [];
 let daytimeLights = [];
 let leftSignals = [];
@@ -175,123 +174,260 @@ let brakeLights = [];
 let headlightsOn = false;
 let turnSignal = 'off';
 
-// CREATE A VEHICLE LIGHT
-function makeVehicleLight(color, width, height, depth, x, y, z, parent) {
-  const light = new THREE.Mesh(
-    new THREE.BoxGeometry(width, height, depth),
-    new THREE.MeshBasicMaterial({ color })
+// Rounded LED lens made from a scaled sphere
+function makeRoundedLight(color, width, height, depth, x, y, z, parent) {
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    toneMapped: false
+  });
+
+  const lens = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 24, 16),
+    material
   );
 
-  light.position.set(x, y, z);
-  parent.add(light);
-  return light;
+  lens.scale.set(width / 2, height / 2, depth / 2);
+  lens.position.set(x, y, z);
+  parent.add(lens);
+
+  return lens;
 }
 
-// CREATE HEADLIGHTS AND SIGNALS ON THE EXPLORER
-function installVehicleLights(model) {
-  const box = new THREE.Box3().setFromObject(model);
+// Convert model mesh bounds to vehicle-local coordinates
+function getVehicleBounds(object) {
+  const box = new THREE.Box3().setFromObject(object);
 
-  // Convert model bounds into vehicle-local coordinates
-  const min = policeCar.worldToLocal(box.min.clone());
-  const max = policeCar.worldToLocal(box.max.clone());
+  const corners = [
+    new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+    new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+    new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+    new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+    new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+    new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+    new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+    new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+  ];
+
+  const localBox = new THREE.Box3();
+
+  for (const corner of corners) {
+    policeCar.worldToLocal(corner);
+    localBox.expandByPoint(corner);
+  }
+
+  return localBox;
+}
+
+// Search the actual model for named headlight and taillight meshes
+function findLightParts(model, words) {
+  const matches = [];
+
+  model.traverse((child) => {
+    if (!child.isMesh) return;
+
+    const name = child.name.toLowerCase();
+
+    if (!words.some(word => name.includes(word))) return;
+
+    child.updateWorldMatrix(true, false);
+
+    const box = new THREE.Box3().setFromObject(child);
+    if (box.isEmpty()) return;
+
+    const center = box.getCenter(new THREE.Vector3());
+    policeCar.worldToLocal(center);
+
+    matches.push({
+      x: center.x,
+      y: center.y,
+      z: center.z,
+      name: child.name
+    });
+  });
+
+  return matches;
+}
+
+function makeSpotlight(x, y, z, targetZ) {
+  const beam = new THREE.SpotLight(
+    0xffffff,
+    55,
+    65,
+    Math.PI / 5,
+    0.45,
+    1
+  );
+
+  beam.position.set(x, y, z);
+  beam.target.position.set(x, y - 0.5, targetZ);
+  beam.visible = false;
+
+  policeCar.add(beam);
+  policeCar.add(beam.target);
+
+  return beam;
+}
+
+// INSTALL LIGHTS USING THE MODEL'S REAL GEOMETRY
+function installVehicleLights(model) {
+  headlights = [];
+  daytimeLights = [];
+  leftSignals = [];
+  rightSignals = [];
+  brakeLights = [];
+
+  policeCar.updateMatrixWorld(true);
+
+  const box = getVehicleBounds(model);
+  const min = box.min;
+  const max = box.max;
 
   const width = max.x - min.x;
   const height = max.y - min.y;
   const length = max.z - min.z;
 
-  // Vehicle faces toward negative Z
-  const frontZ = min.z + length * 0.035;
-  const rearZ = max.z - length * 0.035;
+  // The Explorer faces negative Z
+  const frontZ = min.z;
+  const rearZ = max.z;
 
-  const leftX = min.x + width * 0.25;
-  const rightX = max.x - width * 0.25;
+  // Look for actual named light parts in the 3D model
+  const namedFront = findLightParts(model, [
+    'headlight', 'head_light', 'frontlamp', 'front_lamp'
+  ]);
 
-  const headlightY = min.y + height * 0.43;
-  const daytimeY = min.y + height * 0.30;
-  const signalY = min.y + height * 0.40;
+  const namedRear = findLightParts(model, [
+    'taillight', 'tail_light', 'rear_lamp', 'rearlight'
+  ]);
 
-  // HEADLIGHTS
-  for (const x of [leftX, rightX]) {
-    const lens = makeVehicleLight(
-      0xffffff, 0.38, 0.18, 0.07,
-      x, headlightY, frontZ - 0.04, policeCar
+  console.log('Explorer front light parts:', namedFront);
+  console.log('Explorer rear light parts:', namedRear);
+
+  // If the model has named lamp meshes, use their positions.
+  // Otherwise, calculate positions from the vehicle dimensions.
+  const frontCandidates = namedFront.length >= 2
+    ? namedFront.sort((a, b) => a.x - b.x).slice(0, 2)
+    : [
+        {
+          x: min.x + width * 0.20,
+          y: min.y + height * 0.39,
+          z: frontZ
+        },
+        {
+          x: max.x - width * 0.20,
+          y: min.y + height * 0.39,
+          z: frontZ
+        }
+      ];
+
+  const rearCandidates = namedRear.length >= 2
+    ? namedRear.sort((a, b) => a.x - b.x).slice(0, 2)
+    : [
+        {
+          x: min.x + width * 0.20,
+          y: min.y + height * 0.40,
+          z: rearZ
+        },
+        {
+          x: max.x - width * 0.20,
+          y: min.y + height * 0.40,
+          z: rearZ
+        }
+      ];
+
+  // Front lights: left and right
+  const frontLeft = frontCandidates[0];
+  const frontRight = frontCandidates[1];
+
+  for (const point of [frontLeft, frontRight]) {
+    const lens = makeRoundedLight(
+      0xffffff,
+      width * 0.105,
+      height * 0.045,
+      0.045,
+      point.x,
+      point.y,
+      point.z - 0.035,
+      policeCar
     );
 
     headlights.push(lens);
 
-    const beam = new THREE.SpotLight(
-      0xffffff,
-      55,
-      65,
-      Math.PI / 5,
-      0.45,
-      1
+    const beam = makeSpotlight(
+      point.x,
+      point.y,
+      point.z - 0.12,
+      point.z - 30
     );
-
-    beam.position.set(x, headlightY, frontZ - 0.12);
-    beam.target.position.set(x, headlightY - 0.5, frontZ - 30);
-
-    beam.visible = false;
-    beam.castShadow = false;
-
-    policeCar.add(beam);
-    policeCar.add(beam.target);
 
     headlights.push(beam);
   }
 
-  // DAYTIME RUNNING LIGHTS
-  for (const x of [leftX, rightX]) {
-    const drl = makeVehicleLight(
-      0xdffaff, 0.5, 0.09, 0.06,
-      x, daytimeY, frontZ - 0.06, policeCar
+  // Slim white daytime running lights
+  for (const point of [frontLeft, frontRight]) {
+    const drl = makeRoundedLight(
+      0xe8fbff,
+      width * 0.15,
+      height * 0.018,
+      0.035,
+      point.x,
+      point.y - height * 0.045,
+      point.z - 0.045,
+      policeCar
     );
 
     daytimeLights.push(drl);
   }
 
-  // FRONT TURN SIGNALS
-  for (const x of [leftX, rightX]) {
-    const signal = makeVehicleLight(
-      0xff9900, 0.24, 0.14, 0.07,
-      x, signalY, frontZ - 0.08, policeCar
+  // Front and rear indicators are grouped by vehicle side.
+  // Negative X is the vehicle's left side.
+  function makeIndicator(point, front) {
+    const signal = makeRoundedLight(
+      0xffa000,
+      width * 0.065,
+      height * 0.035,
+      0.045,
+      point.x,
+      point.y,
+      front ? point.z - 0.065 : point.z + 0.065,
+      policeCar
     );
 
     signal.visible = false;
-    leftSignals.push(signal);
+    return signal;
   }
 
-  // REAR TURN SIGNALS
-  for (const x of [leftX, rightX]) {
-    const signal = makeVehicleLight(
-      0xff9900, 0.24, 0.14, 0.07,
-      x, signalY, rearZ + 0.08, policeCar
+  // LEFT: front AND rear
+  leftSignals.push(makeIndicator(frontLeft, true));
+  leftSignals.push(makeIndicator(rearCandidates[0], false));
+
+  // RIGHT: front AND rear
+  rightSignals.push(makeIndicator(frontRight, true));
+  rightSignals.push(makeIndicator(rearCandidates[1], false));
+
+  // Rear brake lights, placed slightly inward from the indicators
+  for (const point of rearCandidates) {
+    const brake = makeRoundedLight(
+      0x550000,
+      width * 0.11,
+      height * 0.06,
+      0.045,
+      point.x,
+      point.y - height * 0.07,
+      point.z + 0.07,
+      policeCar
     );
 
-    signal.visible = false;
-    rightSignals.push(signal);
-  }
-
-  // BRAKE LIGHTS
-  for (const x of [leftX, rightX]) {
-    const brake = makeVehicleLight(
-      0xff0000, 0.35, 0.16, 0.07,
-      x, signalY, rearZ + 0.10, policeCar
-    );
-
-    brake.material = new THREE.MeshBasicMaterial({
-      color: 0x550000
-    });
-
+    brake.userData.dimColor = 0x550000;
+    brake.userData.brightColor = 0xff1010;
     brakeLights.push(brake);
   }
 
   updateVehicleLights();
 
-  console.log('Explorer lighting installed!');
+  console.log('Modern Explorer lighting installed!');
 }
 
-// UPDATE LIGHT SWITCHES
+// UPDATE HEADLIGHTS AND DAYTIME RUNNING LIGHTS
 function updateVehicleLights() {
   headlights.forEach(light => {
     light.visible = headlightsOn;
@@ -325,10 +461,8 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // ROTATE MODEL
     model.rotation.y = Math.PI;
 
-    // SCALE MODEL
     const originalBox = new THREE.Box3().setFromObject(model);
     const originalSize = originalBox.getSize(new THREE.Vector3());
 
@@ -337,7 +471,6 @@ loader.load(
 
     model.updateMatrixWorld(true);
 
-    // CENTER MODEL
     const box = new THREE.Box3().setFromObject(model);
     const center = box.getCenter(new THREE.Vector3());
 
@@ -349,13 +482,10 @@ loader.load(
 
     model.updateMatrixWorld(true);
 
-    // REMOVE TEMPORARY VEHICLE
     policeCar.clear();
-
     policeCar.add(model);
     policeCar.updateMatrixWorld(true);
 
-    // ADD LIGHTS AFTER MODEL IS POSITIONED
     installVehicleLights(model);
 
     message.textContent = 'Ford Explorer loaded!';
@@ -435,18 +565,14 @@ window.addEventListener('keydown', (event) => {
   }
 
   // LEFT TURN SIGNAL
-  if (
-    (event.key === '<' || (event.code === 'Comma' && event.shiftKey)) &&
-    !event.repeat
-  ) {
+  if (event.code === 'Comma' && event.shiftKey && !event.repeat) {
+    event.preventDefault();
     turnSignal = turnSignal === 'left' ? 'off' : 'left';
   }
 
   // RIGHT TURN SIGNAL
-  if (
-    (event.key === '>' || (event.code === 'Period' && event.shiftKey)) &&
-    !event.repeat
-  ) {
+  if (event.code === 'Period' && event.shiftKey && !event.repeat) {
+    event.preventDefault();
     turnSignal = turnSignal === 'right' ? 'off' : 'right';
   }
 
@@ -543,8 +669,8 @@ function animate() {
     message.textContent = 'Press E to exit';
   }
 
-  // TURN SIGNAL FLASHING
-  const signalFlash = Math.sin(Date.now() * 0.012) > 0;
+  // BOTH FRONT AND REAR SIGNALS FLASH TOGETHER
+  const signalFlash = Math.floor(performance.now() / 450) % 2 === 0;
 
   leftSignals.forEach(light => {
     light.visible = turnSignal === 'left' && signalFlash;
@@ -557,7 +683,7 @@ function animate() {
   // BRAKE LIGHTS
   brakeLights.forEach(light => {
     light.material.color.set(
-      keys.s ? 0xff0000 : 0x550000
+      keys.s ? light.userData.brightColor : light.userData.dimColor
     );
   });
 
