@@ -1,3 +1,4 @@
+
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
@@ -29,14 +30,19 @@ const hud = document.createElement('div');
 hud.style.cssText = `
 position:fixed;top:15px;left:15px;padding:14px;
 background:#111c;color:white;border-radius:8px;
-font:16px Arial;line-height:1.7;z-index:10;
+font:15px Arial;line-height:1.7;z-index:10;
 `;
 hud.innerHTML = `
 <b>POLICE SIMULATOR</b><br>
 WASD - Move / Drive<br>
 Mouse - Look around<br>
 E - Enter / Exit vehicle<br>
-<span id="status">ON FOOT</span>
+H - Headlights On / Off<br>
+&lt; - Left Signal<br>
+&gt; - Right Signal<br>
+B - Cancel Signals<br>
+<span id="status">ON FOOT</span><br>
+<span id="lightStatus">DAYTIME RUNNING LIGHTS</span>
 `;
 document.body.appendChild(hud);
 
@@ -128,7 +134,7 @@ const policeCar = new THREE.Group();
 scene.add(policeCar);
 policeCar.position.set(6, 0, 8);
 
-// TEMPORARY CAR WHILE EXPLORER LOADS
+// TEMPORARY CAR
 function makeTemporaryCar() {
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 1, 4.8),
@@ -159,6 +165,151 @@ function makeTemporaryCar() {
 
 makeTemporaryCar();
 
+// VEHICLE LIGHT REFERENCES
+let headlights = [];
+let daytimeLights = [];
+let leftSignals = [];
+let rightSignals = [];
+let brakeLights = [];
+
+let headlightsOn = false;
+let turnSignal = 'off';
+
+// CREATE A VEHICLE LIGHT
+function makeVehicleLight(color, width, height, depth, x, y, z, parent) {
+  const light = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    new THREE.MeshBasicMaterial({ color })
+  );
+
+  light.position.set(x, y, z);
+  parent.add(light);
+  return light;
+}
+
+// CREATE HEADLIGHTS AND SIGNALS ON THE EXPLORER
+function installVehicleLights(model) {
+  const box = new THREE.Box3().setFromObject(model);
+
+  // Convert model bounds into vehicle-local coordinates
+  const min = policeCar.worldToLocal(box.min.clone());
+  const max = policeCar.worldToLocal(box.max.clone());
+
+  const width = max.x - min.x;
+  const height = max.y - min.y;
+  const length = max.z - min.z;
+
+  // Vehicle faces toward negative Z
+  const frontZ = min.z + length * 0.035;
+  const rearZ = max.z - length * 0.035;
+
+  const leftX = min.x + width * 0.25;
+  const rightX = max.x - width * 0.25;
+
+  const headlightY = min.y + height * 0.43;
+  const daytimeY = min.y + height * 0.30;
+  const signalY = min.y + height * 0.40;
+
+  // HEADLIGHTS
+  for (const x of [leftX, rightX]) {
+    const lens = makeVehicleLight(
+      0xffffff, 0.38, 0.18, 0.07,
+      x, headlightY, frontZ - 0.04, policeCar
+    );
+
+    headlights.push(lens);
+
+    const beam = new THREE.SpotLight(
+      0xffffff,
+      55,
+      65,
+      Math.PI / 5,
+      0.45,
+      1
+    );
+
+    beam.position.set(x, headlightY, frontZ - 0.12);
+    beam.target.position.set(x, headlightY - 0.5, frontZ - 30);
+
+    beam.visible = false;
+    beam.castShadow = false;
+
+    policeCar.add(beam);
+    policeCar.add(beam.target);
+
+    headlights.push(beam);
+  }
+
+  // DAYTIME RUNNING LIGHTS
+  for (const x of [leftX, rightX]) {
+    const drl = makeVehicleLight(
+      0xdffaff, 0.5, 0.09, 0.06,
+      x, daytimeY, frontZ - 0.06, policeCar
+    );
+
+    daytimeLights.push(drl);
+  }
+
+  // FRONT TURN SIGNALS
+  for (const x of [leftX, rightX]) {
+    const signal = makeVehicleLight(
+      0xff9900, 0.24, 0.14, 0.07,
+      x, signalY, frontZ - 0.08, policeCar
+    );
+
+    signal.visible = false;
+    leftSignals.push(signal);
+  }
+
+  // REAR TURN SIGNALS
+  for (const x of [leftX, rightX]) {
+    const signal = makeVehicleLight(
+      0xff9900, 0.24, 0.14, 0.07,
+      x, signalY, rearZ + 0.08, policeCar
+    );
+
+    signal.visible = false;
+    rightSignals.push(signal);
+  }
+
+  // BRAKE LIGHTS
+  for (const x of [leftX, rightX]) {
+    const brake = makeVehicleLight(
+      0xff0000, 0.35, 0.16, 0.07,
+      x, signalY, rearZ + 0.10, policeCar
+    );
+
+    brake.material = new THREE.MeshBasicMaterial({
+      color: 0x550000
+    });
+
+    brakeLights.push(brake);
+  }
+
+  updateVehicleLights();
+
+  console.log('Explorer lighting installed!');
+}
+
+// UPDATE LIGHT SWITCHES
+function updateVehicleLights() {
+  headlights.forEach(light => {
+    light.visible = headlightsOn;
+  });
+
+  daytimeLights.forEach(light => {
+    light.visible = !headlightsOn;
+  });
+
+  const lightStatus = document.getElementById('lightStatus');
+
+  if (lightStatus) {
+    lightStatus.textContent = headlightsOn
+      ? 'HEADLIGHTS ON'
+      : 'DAYTIME RUNNING LIGHTS';
+  }
+}
+
 // LOAD FORD EXPLORER
 const loader = new GLTFLoader();
 
@@ -174,25 +325,22 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // ROTATE THE MODEL FIRST
+    // ROTATE MODEL
     model.rotation.y = Math.PI;
 
-    // SET THE MODEL SIZE
+    // SCALE MODEL
     const originalBox = new THREE.Box3().setFromObject(model);
     const originalSize = originalBox.getSize(new THREE.Vector3());
 
     const scale = 8.5 / Math.max(originalSize.x, originalSize.z);
     model.scale.setScalar(scale);
 
-    // UPDATE ITS TRANSFORMS BEFORE MEASURING
     model.updateMatrixWorld(true);
 
-    // CALCULATE THE ACTUAL ROTATED MODEL BOUNDS
+    // CENTER MODEL
     const box = new THREE.Box3().setFromObject(model);
     const center = box.getCenter(new THREE.Vector3());
 
-    // CENTER THE EXPLORER ON THE VEHICLE ORIGIN
-    // AND PLACE ITS TIRES AT GROUND LEVEL
     model.position.set(
       -center.x,
       -box.min.y,
@@ -201,15 +349,17 @@ loader.load(
 
     model.updateMatrixWorld(true);
 
-    // REMOVE THE TEMPORARY CAR
+    // REMOVE TEMPORARY VEHICLE
     policeCar.clear();
 
-    // ADD THE CENTERED EXPLORER TO THE DRIVING VEHICLE
     policeCar.add(model);
+    policeCar.updateMatrixWorld(true);
+
+    // ADD LIGHTS AFTER MODEL IS POSITIONED
+    installVehicleLights(model);
 
     message.textContent = 'Ford Explorer loaded!';
-    console.log('Ford Explorer loaded and centered!');
-    console.log('Explorer dimensions:', originalSize);
+    console.log('Ford Explorer loaded successfully!');
   },
 
   (progress) => {
@@ -232,12 +382,15 @@ let yaw = 0;
 let pitch = 0;
 let driving = false;
 let carSpeed = 0;
+
 const keys = {};
 
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
+
   keys[key] = true;
 
+  // ENTER / EXIT VEHICLE
   if (key === 'e' && !event.repeat) {
     if (!driving) {
       const distance = Math.hypot(
@@ -273,6 +426,33 @@ window.addEventListener('keydown', (event) => {
       yaw = policeCar.rotation.y;
       pitch = 0;
     }
+  }
+
+  // HEADLIGHT SWITCH
+  if (key === 'h' && !event.repeat) {
+    headlightsOn = !headlightsOn;
+    updateVehicleLights();
+  }
+
+  // LEFT TURN SIGNAL
+  if (
+    (event.key === '<' || (event.code === 'Comma' && event.shiftKey)) &&
+    !event.repeat
+  ) {
+    turnSignal = turnSignal === 'left' ? 'off' : 'left';
+  }
+
+  // RIGHT TURN SIGNAL
+  if (
+    (event.key === '>' || (event.code === 'Period' && event.shiftKey)) &&
+    !event.repeat
+  ) {
+    turnSignal = turnSignal === 'right' ? 'off' : 'right';
+  }
+
+  // CANCEL TURN SIGNALS
+  if (key === 'b' && !event.repeat) {
+    turnSignal = 'off';
   }
 });
 
@@ -362,6 +542,24 @@ function animate() {
 
     message.textContent = 'Press E to exit';
   }
+
+  // TURN SIGNAL FLASHING
+  const signalFlash = Math.sin(Date.now() * 0.012) > 0;
+
+  leftSignals.forEach(light => {
+    light.visible = turnSignal === 'left' && signalFlash;
+  });
+
+  rightSignals.forEach(light => {
+    light.visible = turnSignal === 'right' && signalFlash;
+  });
+
+  // BRAKE LIGHTS
+  brakeLights.forEach(light => {
+    light.material.color.set(
+      keys.s ? 0xff0000 : 0x550000
+    );
+  });
 
   renderer.render(scene, camera);
 }
