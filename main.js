@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
@@ -37,7 +36,6 @@ hud.innerHTML = `
 WASD - Move / Drive<br>
 Mouse - Look around<br>
 E - Enter / Exit vehicle<br>
-F - Emergency lights<br>
 <span id="status">ON FOOT</span>
 `;
 document.body.appendChild(hud);
@@ -130,6 +128,7 @@ const policeCar = new THREE.Group();
 scene.add(policeCar);
 policeCar.position.set(6, 0, 8);
 
+// TEMPORARY CAR WHILE EXPLORER LOADS
 function makeTemporaryCar() {
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 1, 4.8),
@@ -160,21 +159,6 @@ function makeTemporaryCar() {
 
 makeTemporaryCar();
 
-// EMERGENCY LIGHTS
-const redLight = new THREE.Mesh(
-  new THREE.BoxGeometry(0.65, 0.2, 0.3),
-  new THREE.MeshBasicMaterial({ color: 0xff0000 })
-);
-redLight.position.set(-0.45, 2.25, 0);
-policeCar.add(redLight);
-
-const blueLight = new THREE.Mesh(
-  new THREE.BoxGeometry(0.65, 0.2, 0.3),
-  new THREE.MeshBasicMaterial({ color: 0x0066ff })
-);
-blueLight.position.set(0.45, 2.25, 0);
-policeCar.add(blueLight);
-
 // LOAD FORD EXPLORER
 const loader = new GLTFLoader();
 
@@ -190,30 +174,42 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    const box = new THREE.Box3().setFromObject(model);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-
-    // MAKE THE EXPLORER BIGGER
-    const scale = 8.5 / Math.max(size.x, size.z);
-    model.scale.setScalar(scale);
-
-    model.position.x = -center.x * scale;
-    model.position.y = -box.min.y * scale;
-    model.position.z = -center.z * scale;
-
-    // TURN THE EXPLORER AROUND 180 DEGREES
+    // ROTATE THE MODEL FIRST
     model.rotation.y = Math.PI;
 
-    // REMOVE TEMPORARY CAR
-    while (policeCar.children.length > 2) {
-      policeCar.remove(policeCar.children[0]);
-    }
+    // SET THE MODEL SIZE
+    const originalBox = new THREE.Box3().setFromObject(model);
+    const originalSize = originalBox.getSize(new THREE.Vector3());
 
+    const scale = 8.5 / Math.max(originalSize.x, originalSize.z);
+    model.scale.setScalar(scale);
+
+    // UPDATE ITS TRANSFORMS BEFORE MEASURING
+    model.updateMatrixWorld(true);
+
+    // CALCULATE THE ACTUAL ROTATED MODEL BOUNDS
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+
+    // CENTER THE EXPLORER ON THE VEHICLE ORIGIN
+    // AND PLACE ITS TIRES AT GROUND LEVEL
+    model.position.set(
+      -center.x,
+      -box.min.y,
+      -center.z
+    );
+
+    model.updateMatrixWorld(true);
+
+    // REMOVE THE TEMPORARY CAR
+    policeCar.clear();
+
+    // ADD THE CENTERED EXPLORER TO THE DRIVING VEHICLE
     policeCar.add(model);
 
     message.textContent = 'Ford Explorer loaded!';
-    console.log('Ford Explorer loaded successfully!');
+    console.log('Ford Explorer loaded and centered!');
+    console.log('Explorer dimensions:', originalSize);
   },
 
   (progress) => {
@@ -236,7 +232,6 @@ let yaw = 0;
 let pitch = 0;
 let driving = false;
 let carSpeed = 0;
-let emergencyLights = true;
 const keys = {};
 
 window.addEventListener('keydown', (event) => {
@@ -278,10 +273,6 @@ window.addEventListener('keydown', (event) => {
       yaw = policeCar.rotation.y;
       pitch = 0;
     }
-  }
-
-  if (key === 'f' && !event.repeat) {
-    emergencyLights = !emergencyLights;
   }
 });
 
@@ -359,6 +350,7 @@ function animate() {
     );
 
     camera.position.copy(policeCar.position).add(offset);
+
     camera.lookAt(
       policeCar.position.x,
       policeCar.position.y + 1,
@@ -368,12 +360,8 @@ function animate() {
     hud.querySelector('#status').textContent =
       'DRIVING | SPEED: ' + Math.round(Math.abs(carSpeed) * 100);
 
-    message.textContent = 'Press E to exit | F for emergency lights';
+    message.textContent = 'Press E to exit';
   }
-
-  const flash = Math.sin(Date.now() * 0.012) > 0;
-  redLight.visible = emergencyLights && flash;
-  blueLight.visible = emergencyLights && !flash;
 
   renderer.render(scene, camera);
 }
