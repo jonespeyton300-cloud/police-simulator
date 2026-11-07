@@ -1,8 +1,9 @@
 
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/DRACOLoader.js';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
+// SCENE
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 scene.fog = new THREE.Fog(0x87ceeb, 60, 220);
@@ -16,7 +17,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-// Lighting
+// LIGHTING
 scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 2));
 
 const sun = new THREE.DirectionalLight(0xffffff, 2);
@@ -49,7 +50,7 @@ border-radius:8px;font:bold 18px Arial;z-index:10;
 `;
 document.body.appendChild(message);
 
-// Ground
+// GROUND
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(300, 300),
   new THREE.MeshStandardMaterial({ color: 0x477b43 })
@@ -58,7 +59,7 @@ ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.05;
 scene.add(ground);
 
-// Roads
+// ROADS
 function makeRoad(x, z, width, depth) {
   const road = new THREE.Mesh(
     new THREE.PlaneGeometry(width, depth),
@@ -72,7 +73,7 @@ function makeRoad(x, z, width, depth) {
 makeRoad(0, 0, 18, 300);
 makeRoad(0, 0, 300, 18);
 
-// Road markings
+// ROAD MARKINGS
 for (let i = -140; i <= 140; i += 12) {
   const line = new THREE.Mesh(
     new THREE.PlaneGeometry(0.3, 5),
@@ -83,31 +84,29 @@ for (let i = -140; i <= 140; i += 12) {
   scene.add(line);
 }
 
-// Buildings
+// BUILDINGS
 function makeBuilding(x, z, width, height, depth, color) {
   const building = new THREE.Mesh(
     new THREE.BoxGeometry(width, height, depth),
     new THREE.MeshStandardMaterial({ color })
   );
+
   building.position.set(x, height / 2, z);
   scene.add(building);
 
-  // Windows
   for (let y = 2; y < height - 1; y += 3) {
     for (let side = -1; side <= 1; side += 2) {
       const windowMesh = new THREE.Mesh(
         new THREE.BoxGeometry(0.8, 1.1, 0.08),
-        new THREE.MeshStandardMaterial({
-          color: 0x83b8d8,
-          metalness: 0.2,
-          roughness: 0.3
-        })
+        new THREE.MeshStandardMaterial({ color: 0x83b8d8 })
       );
+
       windowMesh.position.set(
         x + side * (width / 2 + 0.05),
         y,
         z
       );
+
       scene.add(windowMesh);
     }
   }
@@ -118,21 +117,25 @@ const buildingColors = [0x888888, 0x9b8065, 0x777f8a, 0xb5a28c];
 for (let x = -100; x <= 100; x += 30) {
   for (let z = -100; z <= 100; z += 30) {
     if (Math.abs(x) < 15 || Math.abs(z) < 15) continue;
+
     makeBuilding(
-      x, z, 12, 10 + Math.random() * 22, 12,
+      x,
+      z,
+      12,
+      10 + Math.random() * 22,
+      12,
       buildingColors[Math.floor(Math.random() * buildingColors.length)]
     );
   }
 }
 
-// Police vehicle
+// POLICE VEHICLE
 const policeCar = new THREE.Group();
 scene.add(policeCar);
 policeCar.position.set(6, 0, 8);
 
 let carModelLoaded = false;
 
-// Temporary vehicle in case the GLB has not been uploaded
 function makeTemporaryCar() {
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 1, 4.8),
@@ -154,6 +157,7 @@ function makeTemporaryCar() {
         new THREE.CylinderGeometry(0.4, 0.4, 0.25, 20),
         new THREE.MeshStandardMaterial({ color: 0x111111 })
       );
+
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(x, 0.45, z);
       policeCar.add(wheel);
@@ -163,7 +167,7 @@ function makeTemporaryCar() {
 
 makeTemporaryCar();
 
-// Emergency lights
+// EMERGENCY LIGHTS
 const redLight = new THREE.Mesh(
   new THREE.BoxGeometry(0.65, 0.2, 0.3),
   new THREE.MeshBasicMaterial({ color: 0xff0000 })
@@ -178,7 +182,7 @@ const blueLight = new THREE.Mesh(
 blueLight.position.set(0.45, 2.25, 0);
 policeCar.add(blueLight);
 
-// Load the Explorer model when we upload it
+// LOAD FORD EXPLORER
 const loader = new GLTFLoader();
 
 const dracoLoader = new DRACOLoader();
@@ -188,8 +192,11 @@ dracoLoader.setDecoderPath(
 
 loader.setDRACOLoader(dracoLoader);
 
+console.log('Draco decoder connected:', loader.dracoLoader);
+
 loader.load(
   './police_explorer.glb',
+
   (gltf) => {
     const model = gltf.scene;
 
@@ -212,26 +219,32 @@ loader.load(
 
     carModelLoaded = true;
     message.textContent = 'Ford Explorer loaded!';
+
     console.log('Ford Explorer loaded successfully!');
   },
+
   (progress) => {
-    console.log(
-      'Loading Explorer:',
-      Math.round((progress.loaded / progress.total) * 100) + '%'
-    );
+    if (progress.total > 0) {
+      console.log(
+        'Loading Explorer:',
+        Math.round((progress.loaded / progress.total) * 100) + '%'
+      );
+    }
   },
+
   (error) => {
     console.error('FORD EXPLORER LOADING ERROR:', error);
     message.textContent = 'Explorer failed to load. Check console.';
   }
 );
 
-// Player
+// PLAYER CONTROLS
 let yaw = 0;
 let pitch = 0;
 let driving = false;
 let carSpeed = 0;
 let emergencyLights = true;
+
 const keys = {};
 
 window.addEventListener('keydown', (event) => {
@@ -269,6 +282,7 @@ window.addEventListener('keydown', (event) => {
         2,
         policeCar.position.z + offset.z
       );
+
       yaw = policeCar.rotation.y;
       pitch = 0;
     }
@@ -283,7 +297,7 @@ window.addEventListener('keyup', (event) => {
   keys[event.key.toLowerCase()] = false;
 });
 
-// Mouse look
+// MOUSE LOOK
 renderer.domElement.addEventListener('click', () => {
   if (!driving) renderer.domElement.requestPointerLock();
 });
@@ -296,7 +310,7 @@ document.addEventListener('mousemove', (event) => {
   }
 });
 
-// Game loop
+// GAME LOOP
 function animate() {
   requestAnimationFrame(animate);
 
@@ -330,6 +344,7 @@ function animate() {
 
     message.textContent =
       distance < 7 ? 'Press E to enter your police SUV' : '';
+
   } else {
     if (keys.w) carSpeed += 0.012;
     if (keys.s) carSpeed -= 0.012;
@@ -346,9 +361,13 @@ function animate() {
     policeCar.position.z -= Math.cos(policeCar.rotation.y) * carSpeed;
 
     const offset = new THREE.Vector3(0, 3.5, 8);
-    offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), policeCar.rotation.y);
+    offset.applyAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      policeCar.rotation.y
+    );
 
     camera.position.copy(policeCar.position).add(offset);
+
     camera.lookAt(
       policeCar.position.x,
       policeCar.position.y + 1,
@@ -370,6 +389,7 @@ function animate() {
 
 animate();
 
+// RESIZE
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
