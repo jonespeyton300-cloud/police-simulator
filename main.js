@@ -37,11 +37,14 @@ WASD - Move / Drive<br>
 Mouse - Look around<br>
 E - Enter / Exit vehicle<br>
 H - Headlights On / Off<br>
+J - Emergency Lights On / Off<br>
+K - Change Emergency Pattern<br>
 Shift + , - Left Signal<br>
 Shift + . - Right Signal<br>
 B - Cancel Signals<br>
 <span id="status">ON FOOT</span><br>
-<span id="lightStatus">DAYTIME RUNNING LIGHTS</span>
+<span id="lightStatus">LIGHTS OFF</span><br>
+<span id="emergencyStatus">EMERGENCY LIGHTS OFF</span>
 `;
 document.body.appendChild(hud);
 
@@ -174,24 +177,21 @@ let brakeLights = [];
 let headlightsOn = false;
 let turnSignal = 'off';
 
-// Create an invisible point light.
-// It emits light without adding a visible block to the vehicle.
-function makeInvisiblePointLight(color, intensity, distance, x, y, z, parent) {
-  const light = new THREE.PointLight(
-    color,
-    intensity,
-    distance,
-    2
-  );
+// EMERGENCY LIGHTS
+let emergencyModules = [];
+let emergencyLightsOn = false;
+let emergencyPattern = 0;
 
+// Create an invisible point light.
+function makeInvisiblePointLight(color, intensity, distance, x, y, z, parent) {
+  const light = new THREE.PointLight(color, intensity, distance, 2);
   light.position.set(x, y, z);
   light.visible = false;
   parent.add(light);
-
   return light;
 }
 
-// Rounded lens objects are retained but permanently hidden.
+// Hidden decorative lens.
 function makeHiddenLens(color, width, height, depth, x, y, z, parent) {
   const lens = new THREE.Mesh(
     new THREE.SphereGeometry(1, 16, 12),
@@ -206,11 +206,10 @@ function makeHiddenLens(color, width, height, depth, x, y, z, parent) {
   lens.position.set(x, y, z);
   lens.visible = false;
   parent.add(lens);
-
   return lens;
 }
 
-// Calculate vehicle-local bounds from individual model meshes.
+// Calculate vehicle-local bounds.
 function getVehicleBounds(model) {
   model.updateWorldMatrix(true, true);
   policeCar.updateWorldMatrix(true, true);
@@ -253,7 +252,7 @@ function getVehicleBounds(model) {
   return localBox;
 }
 
-// Find a point on the actual front or rear surface.
+// Find front/rear body surface.
 function findBodySurface(modelMeshes, bounds, x, isFront) {
   const raycaster = new THREE.Raycaster();
 
@@ -262,9 +261,7 @@ function findBodySurface(modelMeshes, bounds, x, isFront) {
     : bounds.max.z + 3;
 
   const direction = new THREE.Vector3(
-    0,
-    0,
-    isFront ? 1 : -1
+    0, 0, isFront ? 1 : -1
   );
 
   const heightFractions = [0.62, 0.58, 0.66, 0.54, 0.70];
@@ -289,10 +286,7 @@ function findBodySurface(modelMeshes, bounds, x, isFront) {
 
     if (hits.length === 0) continue;
 
-    const localHit = policeCar.worldToLocal(
-      hits[0].point.clone()
-    );
-
+    const localHit = policeCar.worldToLocal(hits[0].point.clone());
     const score = Math.abs(localHit.y - targetY);
 
     if (score < bestScore) {
@@ -318,15 +312,10 @@ function vehiclePointToModel(model, point) {
   return model.worldToLocal(worldPoint);
 }
 
-// Create working headlights.
+// Create headlights.
 function makeSpotlight(x, y, z, targetZ) {
   const beam = new THREE.SpotLight(
-    0xffffff,
-    55,
-    65,
-    Math.PI / 5,
-    0.45,
-    1
+    0xffffff, 55, 65, Math.PI / 5, 0.45, 1
   );
 
   beam.position.set(x, y, z);
@@ -339,6 +328,172 @@ function makeSpotlight(x, y, z, targetZ) {
   return beam;
 }
 
+// Create a visible emergency LED module and its light.
+function makeEmergencyModule(model, color, point, width, height, depth) {
+  const modelPoint = vehiclePointToModel(model, point);
+
+  const scale = model.scale.x || 1;
+
+  const lensMaterial = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.12,
+    metalness: 0.1,
+    roughness: 0.22
+  });
+
+  const lens = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      width / scale,
+      height / scale,
+      depth / scale
+    ),
+    lensMaterial
+  );
+
+  lens.position.copy(modelPoint);
+  model.add(lens);
+
+  const light = new THREE.PointLight(color, 0, 9, 2);
+  light.position.copy(modelPoint);
+  light.visible = true;
+  model.add(light);
+
+  emergencyModules.push({
+    lens,
+    material: lensMaterial,
+    light,
+    color
+  });
+}
+
+// Install roof lightbar, grille lights, and rear lights.
+function installEmergencyLights(model, bounds, modelMeshes) {
+  emergencyModules = [];
+
+  const scale = model.scale.x || 1;
+  const width = bounds.max.x - bounds.min.x;
+  const height = bounds.max.y - bounds.min.y;
+  const depth = bounds.max.z - bounds.min.z;
+
+  // ROOF LIGHTBAR
+  // The bar is mounted just above the Explorer roof.
+  const barWidth = width * 0.72;
+  const barDepth = Math.min(depth * 0.12, 0.72);
+  const barHeight = Math.max(height * 0.025, 0.09);
+
+  const roofPoint = new THREE.Vector3(
+    0,
+    bounds.max.y + height * 0.012,
+    (bounds.min.z + bounds.max.z) / 2
+  );
+
+  const roofLocal = vehiclePointToModel(model, roofPoint);
+
+  const barGroup = new THREE.Group();
+  barGroup.position.copy(roofLocal);
+  model.add(barGroup);
+
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      barWidth / scale,
+      barHeight / scale,
+      barDepth / scale
+    ),
+    new THREE.MeshStandardMaterial({
+      color: 0x111318,
+      metalness: 0.65,
+      roughness: 0.35
+    })
+  );
+
+  barGroup.add(base);
+
+  // Eight separate LED modules, alternating red and blue.
+  const moduleCount = 8;
+  const moduleWidth = barWidth * 0.105;
+  const moduleHeight = barHeight * 0.85;
+  const moduleDepth = barDepth * 0.84;
+  const spacing = barWidth * 0.115;
+
+  for (let i = 0; i < moduleCount; i++) {
+    const isRed = i % 2 === 0;
+    const color = isRed ? 0xff1010 : 0x086bff;
+
+    const lensMaterial = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.12,
+      metalness: 0.05,
+      roughness: 0.2
+    });
+
+    const lens = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        moduleWidth / scale,
+        moduleHeight / scale,
+        moduleDepth / scale
+      ),
+      lensMaterial
+    );
+
+    const x = (i - (moduleCount - 1) / 2) * spacing / scale;
+    lens.position.set(x, 0, 0);
+    barGroup.add(lens);
+
+    const light = new THREE.PointLight(color, 0, 10, 2);
+    light.position.set(x, moduleHeight / scale, 0);
+    barGroup.add(light);
+
+    emergencyModules.push({
+      lens,
+      material: lensMaterial,
+      light,
+      color,
+      side: isRed ? 'red' : 'blue',
+      index: i
+    });
+  }
+
+  // GRILLE LIGHTS: four modules across the front.
+  const frontZ = bounds.min.z - 0.045;
+  const grilleY = bounds.min.y + height * 0.48;
+
+  for (let i = 0; i < 4; i++) {
+    const x = bounds.min.x + width * (0.25 + i * 0.167);
+    const point = new THREE.Vector3(x, grilleY, frontZ);
+
+    makeEmergencyModule(
+      model,
+      i % 2 === 0 ? 0xff1010 : 0x086bff,
+      point,
+      width * 0.075,
+      height * 0.055,
+      0.055
+    );
+  }
+
+  // REAR EMERGENCY LIGHTS: four modules.
+  const rearZ = bounds.max.z + 0.045;
+  const rearY = bounds.min.y + height * 0.60;
+
+  for (let i = 0; i < 4; i++) {
+    const x = bounds.min.x + width * (0.25 + i * 0.167);
+    const point = new THREE.Vector3(x, rearY, rearZ);
+
+    makeEmergencyModule(
+      model,
+      i % 2 === 0 ? 0x086bff : 0xff1010,
+      point,
+      width * 0.075,
+      height * 0.055,
+      0.055
+    );
+  }
+
+  console.log('Emergency lightbar, grille and rear lights installed.');
+}
+
 // INSTALL VEHICLE LIGHTS
 function installVehicleLights(model) {
   headlights = [];
@@ -348,7 +503,6 @@ function installVehicleLights(model) {
   brakeLights = [];
 
   const bounds = getVehicleBounds(model);
-
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
@@ -360,7 +514,6 @@ function installVehicleLights(model) {
     }
   });
 
-  // Explorer faces negative Z.
   const leftX = bounds.min.x + width * 0.29;
   const rightX = bounds.max.x - width * 0.29;
 
@@ -370,14 +523,7 @@ function installVehicleLights(model) {
   const rearLeft = findBodySurface(modelMeshes, bounds, leftX, false);
   const rearRight = findBodySurface(modelMeshes, bounds, rightX, false);
 
-  console.log('Vehicle lighting positions:', {
-    frontLeft,
-    frontRight,
-    rearLeft,
-    rearRight
-  });
-
-  // HEADLIGHTS: invisible lenses plus working spotlights.
+  // HEADLIGHTS
   for (const point of [frontLeft, frontRight]) {
     const lensPoint = point.clone();
     lensPoint.z -= 0.035;
@@ -395,17 +541,12 @@ function installVehicleLights(model) {
       model
     );
 
-    const beam = makeSpotlight(
-      point.x,
-      point.y,
-      point.z - 0.12,
-      point.z - 30
+    headlights.push(
+      makeSpotlight(point.x, point.y, point.z - 0.12, point.z - 30)
     );
-
-    headlights.push(beam);
   }
 
-  // DAYTIME RUNNING LIGHTS: hidden decorative lenses.
+  // DAYTIME RUNNING LIGHTS
   for (const point of [frontLeft, frontRight]) {
     const drlPoint = point.clone();
     drlPoint.y -= height * 0.035;
@@ -425,7 +566,7 @@ function installVehicleLights(model) {
     );
   }
 
-  // TURN SIGNALS: invisible lenses with working amber point lights.
+  // TURN SIGNALS
   function makeIndicator(point, isFront) {
     const signalPoint = point.clone();
     signalPoint.z += isFront ? -0.055 : 0.055;
@@ -443,17 +584,13 @@ function installVehicleLights(model) {
       model
     );
 
-    const signalLight = makeInvisiblePointLight(
-      0xff9900,
-      3,
-      5,
+    return makeInvisiblePointLight(
+      0xff9900, 3, 5,
       modelPoint.x,
       modelPoint.y,
       modelPoint.z,
       model
     );
-
-    return signalLight;
   }
 
   leftSignals.push(makeIndicator(frontLeft, true));
@@ -462,7 +599,7 @@ function installVehicleLights(model) {
   rightSignals.push(makeIndicator(frontRight, true));
   rightSignals.push(makeIndicator(rearRight, false));
 
-  // BRAKE LIGHTS: invisible lenses with working red point lights.
+  // BRAKE LIGHTS
   for (const point of [rearLeft, rearRight]) {
     const brakePoint = point.clone();
 
@@ -483,22 +620,24 @@ function installVehicleLights(model) {
       model
     );
 
-    const brakeLight = makeInvisiblePointLight(
-      0xff1010,
-      0,
-      5,
-      modelPoint.x,
-      modelPoint.y,
-      modelPoint.z,
-      model
+    brakeLights.push(
+      makeInvisiblePointLight(
+        0xff1010, 0, 5,
+        modelPoint.x,
+        modelPoint.y,
+        modelPoint.z,
+        model
+      )
     );
-
-    brakeLights.push(brakeLight);
   }
 
-  updateVehicleLights();
+  // EMERGENCY LIGHTS
+  installEmergencyLights(model, bounds, modelMeshes);
 
-  console.log('Invisible vehicle light lenses installed.');
+  updateVehicleLights();
+  updateEmergencyStatus();
+
+  console.log('Vehicle lighting installed.');
 }
 
 // UPDATE HEADLIGHTS
@@ -512,8 +651,63 @@ function updateVehicleLights() {
   if (lightStatus) {
     lightStatus.textContent = headlightsOn
       ? 'HEADLIGHTS ON'
-      : 'LIGHTS OFF';
+      : 'HEADLIGHTS OFF';
   }
+}
+
+// EMERGENCY LIGHT STATUS
+function updateEmergencyStatus() {
+  const status = document.getElementById('emergencyStatus');
+
+  if (!status) return;
+
+  status.textContent = emergencyLightsOn
+    ? `EMERGENCY LIGHTS ON | PATTERN ${emergencyPattern + 1}`
+    : 'EMERGENCY LIGHTS OFF';
+}
+
+// EMERGENCY FLASHING SYSTEM
+function updateEmergencyLights(time) {
+  if (!emergencyModules.length) return;
+
+  if (!emergencyLightsOn) {
+    emergencyModules.forEach(module => {
+      module.light.intensity = 0;
+      module.material.emissiveIntensity = 0.12;
+    });
+    return;
+  }
+
+  const phase = time % 1200;
+  const fastPhase = Math.floor(time / 100) % 2;
+
+  emergencyModules.forEach((module, index) => {
+    let on = false;
+
+    if (emergencyPattern === 0) {
+      // Pattern 1: alternating red and blue.
+      on = module.side === (Math.floor(time / 180) % 2 === 0 ? 'red' : 'blue');
+    }
+
+    if (emergencyPattern === 1) {
+      // Pattern 2: rapid alternating flashes.
+      on = module.side === (fastPhase === 0 ? 'red' : 'blue');
+    }
+
+    if (emergencyPattern === 2) {
+      // Pattern 3: double flash, then pause.
+      const flash = phase < 100 || (phase >= 200 && phase < 300);
+      on = flash && module.side === (Math.floor(time / 600) % 2 === 0 ? 'red' : 'blue');
+    }
+
+    // Small variation across modules creates a more realistic sequence.
+    if (index >= 8) {
+      on = on && Math.floor(time / 180) % 2 === 0;
+    }
+
+    module.light.intensity = on ? 5 : 0;
+    module.material.emissiveIntensity = on ? 3.5 : 0.12;
+  });
 }
 
 // LOAD FORD EXPLORER
@@ -531,7 +725,7 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // Preserve the working Explorer alignment.
+    // Preserve working Explorer alignment.
     model.rotation.y = Math.PI;
 
     const originalBox = new THREE.Box3().setFromObject(model);
@@ -633,6 +827,18 @@ window.addEventListener('keydown', (event) => {
   if (key === 'h' && !event.repeat) {
     headlightsOn = !headlightsOn;
     updateVehicleLights();
+  }
+
+  // EMERGENCY LIGHT SWITCH
+  if (key === 'j' && !event.repeat) {
+    emergencyLightsOn = !emergencyLightsOn;
+    updateEmergencyStatus();
+  }
+
+  // CHANGE EMERGENCY FLASH PATTERN
+  if (key === 'k' && !event.repeat) {
+    emergencyPattern = (emergencyPattern + 1) % 3;
+    updateEmergencyStatus();
   }
 
   // LEFT TURN SIGNAL
@@ -755,6 +961,9 @@ function animate() {
   brakeLights.forEach(light => {
     light.intensity = keys.s ? 3 : 0;
   });
+
+  // EMERGENCY LIGHTS
+  updateEmergencyLights(performance.now());
 
   renderer.render(scene, camera);
 }
