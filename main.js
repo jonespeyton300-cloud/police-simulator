@@ -320,7 +320,7 @@ function makeSpotlight(x, y, z, targetZ) {
 }
 
 // ==========================================
-// SMALL ROOF LIGHTBAR
+// REALISTIC LOW-PROFILE LED LIGHTBAR
 // ==========================================
 
 function installEmergencyLights(model, bounds) {
@@ -330,143 +330,262 @@ function installEmergencyLights(model, bounds) {
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  // Model scale is already applied to the Explorer.
-  // Divide dimensions by that scale so they are not scaled twice.
   const modelScale = Math.abs(model.scale.x) || 1;
 
+  // Convert vehicle dimensions into model-local dimensions.
   const localWidth = width / modelScale;
   const localHeight = height / modelScale;
 
-  // Position the lightbar just above the roof.
-  const roofY = bounds.max.y - height * 0.008;
+  // Place the bar just above the highest point of the vehicle.
+  const roofY = bounds.max.y + height * 0.004;
   const roofZ = (bounds.min.z + bounds.max.z) / 2;
 
-  const baseHeight = localHeight * 0.012;
-  const lensHeight = localHeight * 0.032;
+  // Overall lightbar proportions.
+  const barWidth = localWidth * 0.49;
+  const barDepth = localWidth * 0.095;
 
-  const barWidth = localWidth * 0.48;
-  const barDepth = localWidth * 0.085;
+  const baseHeight = localHeight * 0.009;
+  const lensHeight = localHeight * 0.026;
 
-  const basePosition = vehiclePointToModel(
-    model,
-    new THREE.Vector3(0, roofY + baseHeight / 2 * modelScale, roofZ)
-  );
+  const lensDepth = barDepth * 0.76;
 
-  // Slim black mounting base.
-  const base = new THREE.Mesh(
-    new RoundedBoxGeometry(
-      barWidth,
-      baseHeight,
-      barDepth,
-      3,
-      Math.max(0.001, baseHeight * 0.25)
-    ),
-    new THREE.MeshStandardMaterial({
-      color: 0x111111,
-      metalness: 0.65,
-      roughness: 0.3
-    })
-  );
-
-  base.position.copy(basePosition);
-  model.add(base);
-
-  // Red and blue LED sections.
-  const lensWidth = barWidth * 0.49;
-  const lensDepth = barDepth * 0.88;
-
-  const lensOffsetX = barWidth * 0.245;
-
-  const redMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xff3030,
-    emissive: 0xff0000,
-    emissiveIntensity: 0,
-    roughness: 0.2,
-    metalness: 0,
-    clearcoat: 1,
-    clearcoatRoughness: 0.1
-  });
-
-  const blueMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x287cff,
-    emissive: 0x004cff,
-    emissiveIntensity: 0,
-    roughness: 0.2,
-    metalness: 0,
-    clearcoat: 1,
-    clearcoatRoughness: 0.1
-  });
-
-  const lensY = roofY + (baseHeight + lensHeight / 2) * modelScale;
-
-  const redPosition = vehiclePointToModel(
-    model,
-    new THREE.Vector3(-lensOffsetX * modelScale, lensY, roofZ)
-  );
-
-  const bluePosition = vehiclePointToModel(
-    model,
-    new THREE.Vector3(lensOffsetX * modelScale, lensY, roofZ)
-  );
-
-  const redLens = new THREE.Mesh(
-    new RoundedBoxGeometry(
-      lensWidth,
-      lensHeight,
-      lensDepth,
-      4,
-      lensHeight * 0.22
-    ),
-    redMaterial
-  );
-
-  redLens.position.copy(redPosition);
-  model.add(redLens);
-
-  const blueLens = new THREE.Mesh(
-    new RoundedBoxGeometry(
-      lensWidth,
-      lensHeight,
-      lensDepth,
-      4,
-      lensHeight * 0.22
-    ),
-    blueMaterial
-  );
-
-  blueLens.position.copy(bluePosition);
-  model.add(blueLens);
-
-  roofEmergencyLights.push(
-    { material: redMaterial, side: 'red' },
-    { material: blueMaterial, side: 'blue' }
-  );
-
-  // Small dark dividers.
-  for (let i = 0; i < 5; i++) {
-    const x = (i - 2) * barWidth * 0.095;
-
-    const dividerPosition = vehiclePointToModel(
-      model,
-      new THREE.Vector3(
-        x * modelScale,
-        lensY,
-        roofZ
+  // Convert a vehicle-space position to model space.
+  function addPartPosition(mesh, x, y, z) {
+    mesh.position.copy(
+      vehiclePointToModel(
+        model,
+        new THREE.Vector3(x, y, z)
       )
     );
 
-    const divider = new THREE.Mesh(
-      new THREE.BoxGeometry(
-        barWidth * 0.008,
-        lensHeight * 0.72,
-        lensDepth * 1.015
-      ),
-      new THREE.MeshStandardMaterial({ color: 0x151515 })
+    model.add(mesh);
+  }
+
+  // Convert vehicle-space dimensions to model-space dimensions.
+  function localDimensions(w, h, d) {
+    return [
+      w / modelScale,
+      h / modelScale,
+      d / modelScale
+    ];
+  }
+
+  // Black metal mounting base.
+  const [baseW, baseH, baseD] = localDimensions(
+    barWidth,
+    baseHeight,
+    barDepth
+  );
+
+  const base = new THREE.Mesh(
+    new RoundedBoxGeometry(
+      baseW,
+      baseH,
+      baseD,
+      3,
+      Math.max(0.001, baseH * 0.2)
+    ),
+    new THREE.MeshStandardMaterial({
+      color: 0x101216,
+      metalness: 0.75,
+      roughness: 0.28
+    })
+  );
+
+  addPartPosition(
+    base,
+    0,
+    roofY + baseHeight / 2,
+    roofZ
+  );
+
+  // Small black mounting feet.
+  const footMaterial = new THREE.MeshStandardMaterial({
+    color: 0x08090b,
+    metalness: 0.6,
+    roughness: 0.35
+  });
+
+  for (const x of [-barWidth * 0.32, barWidth * 0.32]) {
+    const [footW, footH, footD] = localDimensions(
+      barWidth * 0.035,
+      baseHeight * 0.8,
+      barDepth * 0.55
     );
 
-    divider.position.copy(dividerPosition);
-    model.add(divider);
+    const foot = new THREE.Mesh(
+      new RoundedBoxGeometry(footW, footH, footD, 2, footH * 0.2),
+      footMaterial
+    );
+
+    addPartPosition(
+      foot,
+      x,
+      roofY - baseHeight * 0.15,
+      roofZ
+    );
   }
+
+  // Six separate LED modules: three red and three blue.
+  const moduleWidth = barWidth * 0.145;
+  const moduleHeight = lensHeight * 0.78;
+  const moduleDepth = lensDepth * 0.72;
+
+  const moduleSpacing = barWidth * 0.163;
+  const moduleY = roofY + baseHeight + lensHeight / 2;
+
+  const redMaterials = [];
+  const blueMaterials = [];
+
+  for (let i = 0; i < 6; i++) {
+    const side = i < 3 ? 'red' : 'blue';
+    const color = side === 'red' ? 0xff2020 : 0x176bff;
+    const emissive = side === 'red' ? 0xff0000 : 0x004cff;
+
+    const x = (i - 2.5) * moduleSpacing;
+
+    // Dark reflector behind each LED module.
+    const [reflectW, reflectH, reflectD] = localDimensions(
+      moduleWidth * 1.08,
+      moduleHeight * 1.12,
+      moduleDepth * 1.08
+    );
+
+    const reflector = new THREE.Mesh(
+      new RoundedBoxGeometry(
+        reflectW,
+        reflectH,
+        reflectD,
+        3,
+        reflectH * 0.15
+      ),
+      new THREE.MeshStandardMaterial({
+        color: 0x171a20,
+        metalness: 0.8,
+        roughness: 0.25
+      })
+    );
+
+    addPartPosition(reflector, x, moduleY, roofZ);
+
+    // LED lens material.
+    const ledMaterial = new THREE.MeshPhysicalMaterial({
+      color,
+      emissive,
+      emissiveIntensity: 0,
+      roughness: 0.18,
+      metalness: 0,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08
+    });
+
+    const [lensW, lensH, lensD] = localDimensions(
+      moduleWidth * 0.88,
+      moduleHeight * 0.78,
+      moduleDepth * 0.72
+    );
+
+    const ledLens = new THREE.Mesh(
+      new RoundedBoxGeometry(
+        lensW,
+        lensH,
+        lensD,
+        4,
+        lensH * 0.18
+      ),
+      ledMaterial
+    );
+
+    addPartPosition(
+      ledLens,
+      x,
+      moduleY,
+      roofZ
+    );
+
+    roofEmergencyLights.push({
+      material: ledMaterial,
+      side
+    });
+
+    if (side === 'red') {
+      redMaterials.push(ledMaterial);
+    } else {
+      blueMaterials.push(ledMaterial);
+    }
+
+    // Small internal LED points across each module.
+    const dotMaterial = new THREE.MeshBasicMaterial({
+      color: side === 'red' ? 0xffaaaa : 0xaacaff
+    });
+
+    for (let dot = -1; dot <= 1; dot++) {
+      const [dotW, dotH, dotD] = localDimensions(
+        moduleWidth * 0.13,
+        moduleHeight * 0.2,
+        moduleDepth * 0.12
+      );
+
+      const dotMesh = new THREE.Mesh(
+        new RoundedBoxGeometry(
+          dotW,
+          dotH,
+          dotD,
+          2,
+          dotH * 0.2
+        ),
+        dotMaterial
+      );
+
+      addPartPosition(
+        dotMesh,
+        x + dot * moduleWidth * 0.23,
+        moduleY,
+        roofZ - barDepth * 0.12
+      );
+    }
+  }
+
+  // Smoked transparent outer cover.
+  // This sits over the LED modules without hiding their colors.
+  const coverHeight = baseHeight + lensHeight * 1.12;
+
+  const [coverW, coverH, coverD] = localDimensions(
+    barWidth * 1.015,
+    coverHeight,
+    barDepth * 0.94
+  );
+
+  const coverMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x26313e,
+    transparent: true,
+    opacity: 0.2,
+    roughness: 0.16,
+    metalness: 0.15,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    depthWrite: false
+  });
+
+  const cover = new THREE.Mesh(
+    new RoundedBoxGeometry(
+      coverW,
+      coverH,
+      coverD,
+      5,
+      coverH * 0.12
+    ),
+    coverMaterial
+  );
+
+  cover.renderOrder = 2;
+
+  addPartPosition(
+    cover,
+    0,
+    roofY + coverHeight / 2,
+    roofZ
+  );
 
   // ========================================
   // INVISIBLE EMERGENCY SPOTLIGHTS
@@ -521,7 +640,7 @@ function installEmergencyLights(model, bounds) {
     rearZ, rearZ + 15, 'red'
   );
 
-  console.log('Small roof lightbar installed.');
+  console.log('Realistic LED lightbar installed.');
 }
 
 // ==========================================
@@ -653,7 +772,7 @@ function updateEmergencyLights(time) {
 
   roofEmergencyLights.forEach(light => {
     light.material.emissiveIntensity =
-      isSideOn(light.side) ? 7 : 0.05;
+      isSideOn(light.side) ? 5 : 0.02;
   });
 }
 
