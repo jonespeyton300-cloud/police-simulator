@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // ==========================================
 // SCENE
@@ -11,32 +12,24 @@ scene.background = new THREE.Color(0x87ceeb);
 scene.fog = new THREE.Fog(0x87ceeb, 60, 220);
 
 const camera = new THREE.PerspectiveCamera(
-  75,
-  innerWidth / innerHeight,
-  0.1,
-  500
+  75, innerWidth / innerHeight, 0.1, 500
 );
-
 camera.position.set(0, 2, 12);
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
   powerPreference: 'high-performance'
 });
-
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
-
 document.body.appendChild(renderer.domElement);
 
 // ==========================================
 // LIGHTING
 // ==========================================
 
-scene.add(
-  new THREE.HemisphereLight(0xffffff, 0x555566, 2)
-);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 2));
 
 const sun = new THREE.DirectionalLight(0xffffff, 2);
 sun.position.set(30, 50, 20);
@@ -48,18 +41,10 @@ scene.add(sun);
 // ==========================================
 
 const hud = document.createElement('div');
-
 hud.style.cssText = `
-position:fixed;
-top:15px;
-left:15px;
-padding:14px;
-background:#111c;
-color:white;
-border-radius:8px;
-font:15px Arial;
-line-height:1.7;
-z-index:10;
+position:fixed;top:15px;left:15px;padding:14px;
+background:#111c;color:white;border-radius:8px;
+font:15px Arial;line-height:1.7;z-index:10;
 `;
 
 hud.innerHTML = `
@@ -74,49 +59,34 @@ K - Change Emergency Pattern<br>
 <span id="lightStatus">HEADLIGHTS OFF</span><br>
 <span id="emergencyStatus">EMERGENCY LIGHTS OFF</span>
 `;
-
 document.body.appendChild(hud);
 
 const message = document.createElement('div');
-
 message.style.cssText = `
-position:fixed;
-bottom:35px;
-left:50%;
-transform:translateX(-50%);
-padding:12px 20px;
-background:#111c;
-color:white;
-border-radius:8px;
-font:bold 18px Arial;
-z-index:10;
+position:fixed;bottom:35px;left:50%;
+transform:translateX(-50%);padding:12px 20px;
+background:#111c;color:white;border-radius:8px;
+font:bold 18px Arial;z-index:10;
 `;
-
 document.body.appendChild(message);
 
 // ==========================================
-// GROUND
+// GROUND AND ROADS
 // ==========================================
 
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(300, 300),
   new THREE.MeshStandardMaterial({ color: 0x477b43 })
 );
-
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.05;
 scene.add(ground);
-
-// ==========================================
-// ROADS
-// ==========================================
 
 function makeRoad(x, z, width, depth) {
   const road = new THREE.Mesh(
     new THREE.PlaneGeometry(width, depth),
     new THREE.MeshStandardMaterial({ color: 0x303238 })
   );
-
   road.rotation.x = -Math.PI / 2;
   road.position.set(x, 0, z);
   scene.add(road);
@@ -125,16 +95,11 @@ function makeRoad(x, z, width, depth) {
 makeRoad(0, 0, 18, 300);
 makeRoad(0, 0, 300, 18);
 
-// ==========================================
-// ROAD MARKINGS
-// ==========================================
-
 for (let i = -140; i <= 140; i += 12) {
   const line = new THREE.Mesh(
     new THREE.PlaneGeometry(0.3, 5),
     new THREE.MeshBasicMaterial({ color: 0xffffff })
   );
-
   line.rotation.x = -Math.PI / 2;
   line.position.set(0, 0.03, i);
   scene.add(line);
@@ -149,7 +114,6 @@ function makeBuilding(x, z, width, height, depth, color) {
     new THREE.BoxGeometry(width, height, depth),
     new THREE.MeshStandardMaterial({ color })
   );
-
   building.position.set(x, height / 2, z);
   scene.add(building);
 
@@ -159,38 +123,23 @@ function makeBuilding(x, z, width, height, depth, color) {
         new THREE.BoxGeometry(0.8, 1.1, 0.08),
         new THREE.MeshStandardMaterial({ color: 0x83b8d8 })
       );
-
       windowMesh.position.set(
-        x + side * (width / 2 + 0.05),
-        y,
-        z
+        x + side * (width / 2 + 0.05), y, z
       );
-
       scene.add(windowMesh);
     }
   }
 }
 
-const buildingColors = [
-  0x888888,
-  0x9b8065,
-  0x777f8a,
-  0xb5a28c
-];
+const buildingColors = [0x888888, 0x9b8065, 0x777f8a, 0xb5a28c];
 
 for (let x = -100; x <= 100; x += 30) {
   for (let z = -100; z <= 100; z += 30) {
     if (Math.abs(x) < 15 || Math.abs(z) < 15) continue;
 
     makeBuilding(
-      x,
-      z,
-      12,
-      10 + Math.random() * 22,
-      12,
-      buildingColors[
-        Math.floor(Math.random() * buildingColors.length)
-      ]
+      x, z, 12, 10 + Math.random() * 22, 12,
+      buildingColors[Math.floor(Math.random() * buildingColors.length)]
     );
   }
 }
@@ -200,17 +149,14 @@ for (let x = -100; x <= 100; x += 30) {
 // ==========================================
 
 const policeCar = new THREE.Group();
-
 scene.add(policeCar);
 policeCar.position.set(6, 0, 8);
 
-// Temporary vehicle while Explorer loads.
 function makeTemporaryCar() {
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 1, 4.8),
     new THREE.MeshStandardMaterial({ color: 0xffffff })
   );
-
   body.position.y = 0.9;
   policeCar.add(body);
 
@@ -218,7 +164,6 @@ function makeTemporaryCar() {
     new THREE.BoxGeometry(1.9, 0.8, 2.2),
     new THREE.MeshStandardMaterial({ color: 0x111111 })
   );
-
   roof.position.y = 1.75;
   policeCar.add(roof);
 
@@ -228,14 +173,12 @@ function makeTemporaryCar() {
         new THREE.CylinderGeometry(0.4, 0.4, 0.25, 20),
         new THREE.MeshStandardMaterial({ color: 0x111111 })
       );
-
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(x, 0.45, z);
       policeCar.add(wheel);
     }
   }
 }
-
 makeTemporaryCar();
 
 // ==========================================
@@ -251,19 +194,10 @@ let emergencyLightsOn = false;
 let emergencyPattern = 0;
 
 // ==========================================
-// HIDDEN LENS
+// HIDDEN HEADLIGHT LENS
 // ==========================================
 
-function makeHiddenLens(
-  color,
-  width,
-  height,
-  depth,
-  x,
-  y,
-  z,
-  parent
-) {
+function makeHiddenLens(color, width, height, depth, x, y, z, parent) {
   const lens = new THREE.Mesh(
     new THREE.SphereGeometry(1, 8, 6),
     new THREE.MeshBasicMaterial({
@@ -272,13 +206,10 @@ function makeHiddenLens(
       opacity: 0
     })
   );
-
   lens.scale.set(width / 2, height / 2, depth / 2);
   lens.position.set(x, y, z);
   lens.visible = false;
-
   parent.add(lens);
-
   return lens;
 }
 
@@ -291,11 +222,7 @@ function getVehicleBounds(model) {
   policeCar.updateWorldMatrix(true, true);
 
   const localBox = new THREE.Box3();
-
-  const corners = Array.from(
-    { length: 8 },
-    () => new THREE.Vector3()
-  );
+  const corners = Array.from({ length: 8 }, () => new THREE.Vector3());
 
   model.traverse((child) => {
     if (!child.isMesh || !child.geometry) return;
@@ -304,12 +231,11 @@ function getVehicleBounds(model) {
       child.geometry.computeBoundingBox();
     }
 
-    const geometryBox = child.geometry.boundingBox;
+    const box = child.geometry.boundingBox;
+    if (!box || box.isEmpty()) return;
 
-    if (!geometryBox || geometryBox.isEmpty()) return;
-
-    const min = geometryBox.min;
-    const max = geometryBox.max;
+    const min = box.min;
+    const max = box.max;
 
     corners[0].set(min.x, min.y, min.z);
     corners[1].set(min.x, min.y, max.z);
@@ -331,7 +257,7 @@ function getVehicleBounds(model) {
 }
 
 // ==========================================
-// CONVERT POSITION
+// COORDINATE CONVERSION
 // ==========================================
 
 function vehiclePointToModel(model, point) {
@@ -345,33 +271,21 @@ function vehiclePointToModel(model, point) {
 
 function makeSpotlight(x, y, z, targetZ) {
   const beam = new THREE.SpotLight(
-    0xffffff,
-    55,
-    65,
-    Math.PI / 5,
-    0.45,
-    1
+    0xffffff, 55, 65, Math.PI / 5, 0.45, 1
   );
 
   beam.position.set(x, y, z);
-
-  beam.target.position.set(
-    x,
-    y - 0.2,
-    targetZ
-  );
-
+  beam.target.position.set(x, y - 0.2, targetZ);
   beam.visible = false;
   beam.castShadow = false;
 
   policeCar.add(beam);
   policeCar.add(beam.target);
-
   return beam;
 }
 
 // ==========================================
-// EMERGENCY LIGHTS AND ROOF LIGHTBAR
+// REALISTIC LOW-PROFILE ROOF LIGHTBAR
 // ==========================================
 
 function installEmergencyLights(model, bounds) {
@@ -380,70 +294,140 @@ function installEmergencyLights(model, bounds) {
 
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
+  const length = bounds.max.z - bounds.min.z;
 
-  // ROOF LIGHTBAR BASE
-  const barBase = new THREE.Mesh(
-    new THREE.BoxGeometry(
-      width * 0.72,
-      height * 0.035,
-      width * 0.13
+  // Roof position in VEHICLE coordinates.
+  const roofY = bounds.max.y - height * 0.105;
+  const roofZ = (bounds.min.z + bounds.max.z) / 2;
+
+  // Lightbar dimensions: compact and proportional.
+  const barWidth = width * 0.56;
+  const barDepth = width * 0.105;
+  const baseHeight = height * 0.018;
+  const lensHeight = height * 0.045;
+
+  // Convert every roof position into MODEL coordinates.
+  const basePosition = vehiclePointToModel(
+    model,
+    new THREE.Vector3(0, roofY, roofZ)
+  );
+
+  // Slim black mounting base.
+  const base = new THREE.Mesh(
+    new RoundedBoxGeometry(
+      barWidth,
+      baseHeight,
+      barDepth,
+      3,
+      baseHeight * 0.35
     ),
     new THREE.MeshStandardMaterial({
-      color: 0x111111,
-      metalness: 0.6,
-      roughness: 0.35
+      color: 0x101014,
+      metalness: 0.65,
+      roughness: 0.3
     })
   );
 
-  barBase.position.set(
-    0,
-    bounds.max.y - height * 0.075,
-    (bounds.min.z + bounds.max.z) / 2
+  base.position.copy(basePosition);
+  model.add(base);
+
+  // Two continuous red/blue rounded lightbar lenses.
+  const lensWidth = barWidth * 0.49;
+  const lensDepth = barDepth * 0.88;
+
+  const lensOffsetY = baseHeight / 2 + lensHeight / 2;
+  const lensOffsetX = barWidth * 0.245;
+
+  const redMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xff2020,
+    emissive: 0xff0000,
+    emissiveIntensity: 0,
+    roughness: 0.2,
+    metalness: 0,
+    clearcoat: 1,
+    clearcoatRoughness: 0.1
+  });
+
+  const blueMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x176cff,
+    emissive: 0x004cff,
+    emissiveIntensity: 0,
+    roughness: 0.2,
+    metalness: 0,
+    clearcoat: 1,
+    clearcoatRoughness: 0.1
+  });
+
+  const redPosition = vehiclePointToModel(
+    model,
+    new THREE.Vector3(-lensOffsetX, roofY + lensOffsetY, roofZ)
   );
 
-  model.add(barBase);
+  const bluePosition = vehiclePointToModel(
+    model,
+    new THREE.Vector3(lensOffsetX, roofY + lensOffsetY, roofZ)
+  );
 
-  // FOUR VISIBLE ROOF LIGHTS
-  const colors = [
-    0xff0000,
-    0xff0000,
-    0x0066ff,
-    0x0066ff
-  ];
+  const redLens = new THREE.Mesh(
+    new RoundedBoxGeometry(
+      lensWidth, lensHeight, lensDepth, 4, lensHeight * 0.22
+    ),
+    redMaterial
+  );
 
-  for (let i = 0; i < 4; i++) {
-    const material = new THREE.MeshStandardMaterial({
-      color: colors[i],
-      emissive: colors[i],
-      emissiveIntensity: 0,
-      metalness: 0.1,
-      roughness: 0.25
-    });
+  redLens.position.copy(redPosition);
+  model.add(redLens);
 
-    const lens = new THREE.Mesh(
+  const blueLens = new THREE.Mesh(
+    new RoundedBoxGeometry(
+      lensWidth, lensHeight, lensDepth, 4, lensHeight * 0.22
+    ),
+    blueMaterial
+  );
+
+  blueLens.position.copy(bluePosition);
+  model.add(blueLens);
+
+  roofEmergencyLights.push({
+    material: redMaterial,
+    side: 'red'
+  });
+
+  roofEmergencyLights.push({
+    material: blueMaterial,
+    side: 'blue'
+  });
+
+  // Small dark dividers along the lightbar.
+  for (let i = 0; i < 5; i++) {
+    const x = (i - 2) * barWidth * 0.095;
+
+    const dividerPosition = vehiclePointToModel(
+      model,
+      new THREE.Vector3(
+        x,
+        roofY + lensOffsetY,
+        roofZ
+      )
+    );
+
+    const divider = new THREE.Mesh(
       new THREE.BoxGeometry(
-        width * 0.16,
-        height * 0.055,
-        width * 0.105
+        barWidth * 0.008,
+        lensHeight * 0.72,
+        lensDepth * 1.015
       ),
-      material
+      new THREE.MeshStandardMaterial({ color: 0x151515 })
     );
 
-    lens.position.set(
-      (i - 1.5) * width * 0.17,
-      barBase.position.y + height * 0.045,
-      barBase.position.z
-    );
-
-    model.add(lens);
-
-    roofEmergencyLights.push({
-      material,
-      side: i < 2 ? 'red' : 'blue'
-    });
+    divider.position.copy(dividerPosition);
+    model.add(divider);
   }
 
-  // INVISIBLE EMERGENCY SPOTLIGHTS
+  // ========================================
+  // FOUR INVISIBLE EMERGENCY SPOTLIGHTS
+  // ========================================
+
   function addEmergencySpot(color, x, y, z, targetZ, side) {
     const position = vehiclePointToModel(
       model,
@@ -456,12 +440,7 @@ function installEmergencyLights(model, bounds) {
     );
 
     const light = new THREE.SpotLight(
-      color,
-      0,
-      25,
-      Math.PI / 2.5,
-      0.5,
-      1
+      color, 0, 25, Math.PI / 2.5, 0.5, 1
     );
 
     light.position.copy(position);
@@ -471,10 +450,7 @@ function installEmergencyLights(model, bounds) {
     model.add(light);
     model.add(light.target);
 
-    emergencyModules.push({
-      light,
-      side
-    });
+    emergencyModules.push({ light, side });
   }
 
   const frontZ = bounds.min.z - 0.08;
@@ -482,42 +458,26 @@ function installEmergencyLights(model, bounds) {
   const lightY = bounds.min.y + height * 0.62;
 
   addEmergencySpot(
-    0xff0000,
-    -width * 0.25,
-    lightY,
-    frontZ,
-    frontZ - 15,
-    'red'
+    0xff0000, -width * 0.25, lightY,
+    frontZ, frontZ - 15, 'red'
   );
 
   addEmergencySpot(
-    0x0066ff,
-    width * 0.25,
-    lightY,
-    frontZ,
-    frontZ - 15,
-    'blue'
+    0x0066ff, width * 0.25, lightY,
+    frontZ, frontZ - 15, 'blue'
   );
 
   addEmergencySpot(
-    0x0066ff,
-    -width * 0.25,
-    lightY,
-    rearZ,
-    rearZ + 15,
-    'blue'
+    0x0066ff, -width * 0.25, lightY,
+    rearZ, rearZ + 15, 'blue'
   );
 
   addEmergencySpot(
-    0xff0000,
-    width * 0.25,
-    lightY,
-    rearZ,
-    rearZ + 15,
-    'red'
+    0xff0000, width * 0.25, lightY,
+    rearZ, rearZ + 15, 'red'
   );
 
-  console.log('Roof lightbar and emergency lights installed.');
+  console.log('Realistic roof lightbar installed.');
 }
 
 // ==========================================
@@ -528,7 +488,6 @@ function installVehicleLights(model) {
   headlights = [];
 
   const bounds = getVehicleBounds(model);
-
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
@@ -536,15 +495,11 @@ function installVehicleLights(model) {
   const rightX = bounds.max.x - width * 0.29;
 
   const frontLeft = new THREE.Vector3(
-    leftX,
-    bounds.min.y + height * 0.62,
-    bounds.min.z
+    leftX, bounds.min.y + height * 0.62, bounds.min.z
   );
 
   const frontRight = new THREE.Vector3(
-    rightX,
-    bounds.min.y + height * 0.62,
-    bounds.min.z
+    rightX, bounds.min.y + height * 0.62, bounds.min.z
   );
 
   for (const point of [frontLeft, frontRight]) {
@@ -564,18 +519,14 @@ function installVehicleLights(model) {
       model
     );
 
-    const beam = makeSpotlight(
-      point.x,
-      point.y,
-      point.z - 0.12,
-      point.z - 30
+    headlights.push(
+      makeSpotlight(
+        point.x, point.y, point.z - 0.12, point.z - 30
+      )
     );
-
-    headlights.push(beam);
   }
 
   installEmergencyLights(model, bounds);
-
   updateVehicleLights();
   updateEmergencyStatus();
 }
@@ -604,7 +555,6 @@ function updateVehicleLights() {
 
 function updateEmergencyStatus() {
   const status = document.getElementById('emergencyStatus');
-
   if (!status) return;
 
   status.textContent = emergencyLightsOn
@@ -649,21 +599,17 @@ function updateEmergencyLights(time) {
 
     return doubleFlash &&
       side === (
-        Math.floor(time / 500) % 2 === 0
-          ? 'red'
-          : 'blue'
+        Math.floor(time / 500) % 2 === 0 ? 'red' : 'blue'
       );
   }
 
-  // BRIGHTER SPOTLIGHTS
   emergencyModules.forEach(module => {
     module.light.intensity = isSideOn(module.side) ? 65 : 0;
   });
 
-  // VISIBLE ROOF LIGHTBAR
   roofEmergencyLights.forEach(light => {
     light.material.emissiveIntensity =
-      isSideOn(light.side) ? 8 : 0.05;
+      isSideOn(light.side) ? 7 : 0.05;
   });
 }
 
@@ -672,7 +618,6 @@ function updateEmergencyLights(time) {
 // ==========================================
 
 const loader = new GLTFLoader();
-
 const dracoLoader = new DRACOLoader();
 
 dracoLoader.setDecoderPath(
@@ -686,14 +631,10 @@ loader.load(
 
   (gltf) => {
     const model = gltf.scene;
-
     model.rotation.y = Math.PI;
 
     const originalBox = new THREE.Box3().setFromObject(model);
-
-    const originalSize = originalBox.getSize(
-      new THREE.Vector3()
-    );
+    const originalSize = originalBox.getSize(new THREE.Vector3());
 
     const scale = 8.5 / Math.max(
       originalSize.x,
@@ -701,11 +642,9 @@ loader.load(
     );
 
     model.scale.setScalar(scale);
-
     model.updateMatrixWorld(true);
 
     const box = new THREE.Box3().setFromObject(model);
-
     const center = box.getCenter(new THREE.Vector3());
 
     model.position.set(
@@ -718,13 +657,11 @@ loader.load(
 
     policeCar.clear();
     policeCar.add(model);
-
     policeCar.updateMatrixWorld(true);
 
     installVehicleLights(model);
 
     message.textContent = 'Ford Explorer loaded!';
-
     console.log('Ford Explorer loaded successfully!');
   },
 
@@ -732,9 +669,7 @@ loader.load(
     if (progress.total > 0) {
       console.log(
         'Loading Explorer:',
-        Math.round(
-          (progress.loaded / progress.total) * 100
-        ) + '%'
+        Math.round(progress.loaded / progress.total * 100) + '%'
       );
     }
   },
@@ -758,10 +693,8 @@ const keys = {};
 
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
-
   keys[key] = true;
 
-  // ENTER / EXIT VEHICLE
   if (key === 'e' && !event.repeat) {
     if (!driving) {
       const distance = Math.hypot(
@@ -774,18 +707,15 @@ window.addEventListener('keydown', (event) => {
         carSpeed = 0;
         yaw = policeCar.rotation.y;
         pitch = 0;
-
         document.exitPointerLock?.();
       } else {
-        message.textContent =
-          'Walk closer to your police SUV!';
+        message.textContent = 'Walk closer to your police SUV!';
       }
     } else {
       driving = false;
       carSpeed = 0;
 
       const offset = new THREE.Vector3(3.5, 0, 0);
-
       offset.applyAxisAngle(
         new THREE.Vector3(0, 1, 0),
         policeCar.rotation.y
@@ -802,19 +732,16 @@ window.addEventListener('keydown', (event) => {
     }
   }
 
-  // HEADLIGHT SWITCH
   if (key === 'h' && !event.repeat) {
     headlightsOn = !headlightsOn;
     updateVehicleLights();
   }
 
-  // EMERGENCY LIGHT SWITCH
   if (key === 'j' && !event.repeat) {
     emergencyLightsOn = !emergencyLightsOn;
     updateEmergencyStatus();
   }
 
-  // CHANGE EMERGENCY PATTERN
   if (key === 'k' && !event.repeat) {
     emergencyPattern = (emergencyPattern + 1) % 3;
     updateEmergencyStatus();
@@ -843,11 +770,7 @@ document.addEventListener('mousemove', (event) => {
     yaw -= event.movementX * 0.002;
     pitch -= event.movementY * 0.002;
 
-    pitch = THREE.MathUtils.clamp(
-      pitch,
-      -1.4,
-      1.4
-    );
+    pitch = THREE.MathUtils.clamp(pitch, -1.4, 1.4);
   }
 });
 
@@ -877,15 +800,11 @@ function animate() {
     camera.position.z += direction.z * 0.13;
 
     camera.position.x = THREE.MathUtils.clamp(
-      camera.position.x,
-      -140,
-      140
+      camera.position.x, -140, 140
     );
 
     camera.position.z = THREE.MathUtils.clamp(
-      camera.position.z,
-      -140,
-      140
+      camera.position.z, -140, 140
     );
 
     camera.rotation.order = 'YXZ';
@@ -899,47 +818,34 @@ function animate() {
       camera.position.z - policeCar.position.z
     );
 
-    message.textContent =
-      distance < 7
-        ? 'Press E to enter your police SUV'
-        : '';
+    message.textContent = distance < 7
+      ? 'Press E to enter your police SUV'
+      : '';
 
   } else {
-    // ACCELERATION
     if (keys.w) carSpeed += 0.012;
     if (keys.s) carSpeed -= 0.012;
 
     carSpeed *= 0.985;
+    carSpeed = THREE.MathUtils.clamp(carSpeed, -0.3, 0.7);
 
-    carSpeed = THREE.MathUtils.clamp(
-      carSpeed,
-      -0.3,
-      0.7
-    );
-
-    // STEERING
     if (Math.abs(carSpeed) > 0.01) {
       if (keys.a) {
-        policeCar.rotation.y +=
-          0.025 * Math.sign(carSpeed);
+        policeCar.rotation.y += 0.025 * Math.sign(carSpeed);
       }
 
       if (keys.d) {
-        policeCar.rotation.y -=
-          0.025 * Math.sign(carSpeed);
+        policeCar.rotation.y -= 0.025 * Math.sign(carSpeed);
       }
     }
 
-    // MOVEMENT
     policeCar.position.x -=
       Math.sin(policeCar.rotation.y) * carSpeed;
 
     policeCar.position.z -=
       Math.cos(policeCar.rotation.y) * carSpeed;
 
-    // FOLLOW CAMERA
     const offset = new THREE.Vector3(0, 3.5, 8);
-
     offset.applyAxisAngle(
       new THREE.Vector3(0, 1, 0),
       policeCar.rotation.y
@@ -961,7 +867,6 @@ function animate() {
   }
 
   updateEmergencyLights(performance.now());
-
   renderer.render(scene, camera);
 }
 
@@ -974,6 +879,5 @@ animate();
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-
   renderer.setSize(innerWidth, innerHeight);
 });
