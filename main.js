@@ -11,15 +11,14 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 scene.fog = new THREE.Fog(0x87ceeb, 60, 220);
 
-const camera = new THREE.PerspectiveCamera(
-  75, innerWidth / innerHeight, 0.1, 500
-);
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 500);
 camera.position.set(0, 2, 12);
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
   powerPreference: 'high-performance'
 });
+
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
@@ -41,10 +40,18 @@ scene.add(sun);
 // ==========================================
 
 const hud = document.createElement('div');
+
 hud.style.cssText = `
-position:fixed;top:15px;left:15px;padding:14px;
-background:#111c;color:white;border-radius:8px;
-font:15px Arial;line-height:1.7;z-index:10;
+position:fixed;
+top:15px;
+left:15px;
+padding:14px;
+background:#111c;
+color:white;
+border-radius:8px;
+font:15px Arial;
+line-height:1.7;
+z-index:10;
 `;
 
 hud.innerHTML = `
@@ -59,15 +66,24 @@ K - Change Emergency Pattern<br>
 <span id="lightStatus">HEADLIGHTS OFF</span><br>
 <span id="emergencyStatus">EMERGENCY LIGHTS OFF</span>
 `;
+
 document.body.appendChild(hud);
 
 const message = document.createElement('div');
+
 message.style.cssText = `
-position:fixed;bottom:35px;left:50%;
-transform:translateX(-50%);padding:12px 20px;
-background:#111c;color:white;border-radius:8px;
-font:bold 18px Arial;z-index:10;
+position:fixed;
+bottom:35px;
+left:50%;
+transform:translateX(-50%);
+padding:12px 20px;
+background:#111c;
+color:white;
+border-radius:8px;
+font:bold 18px Arial;
+z-index:10;
 `;
+
 document.body.appendChild(message);
 
 // ==========================================
@@ -78,6 +94,7 @@ const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(300, 300),
   new THREE.MeshStandardMaterial({ color: 0x477b43 })
 );
+
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.05;
 scene.add(ground);
@@ -87,6 +104,7 @@ function makeRoad(x, z, width, depth) {
     new THREE.PlaneGeometry(width, depth),
     new THREE.MeshStandardMaterial({ color: 0x303238 })
   );
+
   road.rotation.x = -Math.PI / 2;
   road.position.set(x, 0, z);
   scene.add(road);
@@ -100,6 +118,7 @@ for (let i = -140; i <= 140; i += 12) {
     new THREE.PlaneGeometry(0.3, 5),
     new THREE.MeshBasicMaterial({ color: 0xffffff })
   );
+
   line.rotation.x = -Math.PI / 2;
   line.position.set(0, 0.03, i);
   scene.add(line);
@@ -114,6 +133,7 @@ function makeBuilding(x, z, width, height, depth, color) {
     new THREE.BoxGeometry(width, height, depth),
     new THREE.MeshStandardMaterial({ color })
   );
+
   building.position.set(x, height / 2, z);
   scene.add(building);
 
@@ -123,9 +143,13 @@ function makeBuilding(x, z, width, height, depth, color) {
         new THREE.BoxGeometry(0.8, 1.1, 0.08),
         new THREE.MeshStandardMaterial({ color: 0x83b8d8 })
       );
+
       windowMesh.position.set(
-        x + side * (width / 2 + 0.05), y, z
+        x + side * (width / 2 + 0.05),
+        y,
+        z
       );
+
       scene.add(windowMesh);
     }
   }
@@ -138,7 +162,11 @@ for (let x = -100; x <= 100; x += 30) {
     if (Math.abs(x) < 15 || Math.abs(z) < 15) continue;
 
     makeBuilding(
-      x, z, 12, 10 + Math.random() * 22, 12,
+      x,
+      z,
+      12,
+      10 + Math.random() * 22,
+      12,
       buildingColors[Math.floor(Math.random() * buildingColors.length)]
     );
   }
@@ -157,6 +185,7 @@ function makeTemporaryCar() {
     new THREE.BoxGeometry(2.2, 1, 4.8),
     new THREE.MeshStandardMaterial({ color: 0xffffff })
   );
+
   body.position.y = 0.9;
   policeCar.add(body);
 
@@ -164,6 +193,7 @@ function makeTemporaryCar() {
     new THREE.BoxGeometry(1.9, 0.8, 2.2),
     new THREE.MeshStandardMaterial({ color: 0x111111 })
   );
+
   roof.position.y = 1.75;
   policeCar.add(roof);
 
@@ -173,12 +203,14 @@ function makeTemporaryCar() {
         new THREE.CylinderGeometry(0.4, 0.4, 0.25, 20),
         new THREE.MeshStandardMaterial({ color: 0x111111 })
       );
+
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(x, 0.45, z);
       policeCar.add(wheel);
     }
   }
 }
+
 makeTemporaryCar();
 
 // ==========================================
@@ -194,7 +226,7 @@ let emergencyLightsOn = false;
 let emergencyPattern = 0;
 
 // ==========================================
-// HIDDEN HEADLIGHT LENS
+// HIDDEN LENS
 // ==========================================
 
 function makeHiddenLens(color, width, height, depth, x, y, z, parent) {
@@ -206,10 +238,12 @@ function makeHiddenLens(color, width, height, depth, x, y, z, parent) {
       opacity: 0
     })
   );
+
   lens.scale.set(width / 2, height / 2, depth / 2);
   lens.position.set(x, y, z);
   lens.visible = false;
   parent.add(lens);
+
   return lens;
 }
 
@@ -281,11 +315,12 @@ function makeSpotlight(x, y, z, targetZ) {
 
   policeCar.add(beam);
   policeCar.add(beam.target);
+
   return beam;
 }
 
 // ==========================================
-// REALISTIC LOW-PROFILE ROOF LIGHTBAR
+// SMALL ROOF LIGHTBAR
 // ==========================================
 
 function installEmergencyLights(model, bounds) {
@@ -294,22 +329,27 @@ function installEmergencyLights(model, bounds) {
 
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
-  const length = bounds.max.z - bounds.min.z;
 
-  // Roof position in VEHICLE coordinates.
-  const roofY = bounds.max.y - height * 0.105;
+  // Model scale is already applied to the Explorer.
+  // Divide dimensions by that scale so they are not scaled twice.
+  const modelScale = Math.abs(model.scale.x) || 1;
+
+  const localWidth = width / modelScale;
+  const localHeight = height / modelScale;
+
+  // Position the lightbar just above the roof.
+  const roofY = bounds.max.y - height * 0.008;
   const roofZ = (bounds.min.z + bounds.max.z) / 2;
 
-  // Lightbar dimensions: compact and proportional.
-  const barWidth = width * 0.56;
-  const barDepth = width * 0.105;
-  const baseHeight = height * 0.018;
-  const lensHeight = height * 0.045;
+  const baseHeight = localHeight * 0.012;
+  const lensHeight = localHeight * 0.032;
 
-  // Convert every roof position into MODEL coordinates.
+  const barWidth = localWidth * 0.48;
+  const barDepth = localWidth * 0.085;
+
   const basePosition = vehiclePointToModel(
     model,
-    new THREE.Vector3(0, roofY, roofZ)
+    new THREE.Vector3(0, roofY + baseHeight / 2 * modelScale, roofZ)
   );
 
   // Slim black mounting base.
@@ -319,10 +359,10 @@ function installEmergencyLights(model, bounds) {
       baseHeight,
       barDepth,
       3,
-      baseHeight * 0.35
+      Math.max(0.001, baseHeight * 0.25)
     ),
     new THREE.MeshStandardMaterial({
-      color: 0x101014,
+      color: 0x111111,
       metalness: 0.65,
       roughness: 0.3
     })
@@ -331,15 +371,14 @@ function installEmergencyLights(model, bounds) {
   base.position.copy(basePosition);
   model.add(base);
 
-  // Two continuous red/blue rounded lightbar lenses.
+  // Red and blue LED sections.
   const lensWidth = barWidth * 0.49;
   const lensDepth = barDepth * 0.88;
 
-  const lensOffsetY = baseHeight / 2 + lensHeight / 2;
   const lensOffsetX = barWidth * 0.245;
 
   const redMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xff2020,
+    color: 0xff3030,
     emissive: 0xff0000,
     emissiveIntensity: 0,
     roughness: 0.2,
@@ -349,7 +388,7 @@ function installEmergencyLights(model, bounds) {
   });
 
   const blueMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x176cff,
+    color: 0x287cff,
     emissive: 0x004cff,
     emissiveIntensity: 0,
     roughness: 0.2,
@@ -358,19 +397,25 @@ function installEmergencyLights(model, bounds) {
     clearcoatRoughness: 0.1
   });
 
+  const lensY = roofY + (baseHeight + lensHeight / 2) * modelScale;
+
   const redPosition = vehiclePointToModel(
     model,
-    new THREE.Vector3(-lensOffsetX, roofY + lensOffsetY, roofZ)
+    new THREE.Vector3(-lensOffsetX * modelScale, lensY, roofZ)
   );
 
   const bluePosition = vehiclePointToModel(
     model,
-    new THREE.Vector3(lensOffsetX, roofY + lensOffsetY, roofZ)
+    new THREE.Vector3(lensOffsetX * modelScale, lensY, roofZ)
   );
 
   const redLens = new THREE.Mesh(
     new RoundedBoxGeometry(
-      lensWidth, lensHeight, lensDepth, 4, lensHeight * 0.22
+      lensWidth,
+      lensHeight,
+      lensDepth,
+      4,
+      lensHeight * 0.22
     ),
     redMaterial
   );
@@ -380,7 +425,11 @@ function installEmergencyLights(model, bounds) {
 
   const blueLens = new THREE.Mesh(
     new RoundedBoxGeometry(
-      lensWidth, lensHeight, lensDepth, 4, lensHeight * 0.22
+      lensWidth,
+      lensHeight,
+      lensDepth,
+      4,
+      lensHeight * 0.22
     ),
     blueMaterial
   );
@@ -388,25 +437,20 @@ function installEmergencyLights(model, bounds) {
   blueLens.position.copy(bluePosition);
   model.add(blueLens);
 
-  roofEmergencyLights.push({
-    material: redMaterial,
-    side: 'red'
-  });
+  roofEmergencyLights.push(
+    { material: redMaterial, side: 'red' },
+    { material: blueMaterial, side: 'blue' }
+  );
 
-  roofEmergencyLights.push({
-    material: blueMaterial,
-    side: 'blue'
-  });
-
-  // Small dark dividers along the lightbar.
+  // Small dark dividers.
   for (let i = 0; i < 5; i++) {
     const x = (i - 2) * barWidth * 0.095;
 
     const dividerPosition = vehiclePointToModel(
       model,
       new THREE.Vector3(
-        x,
-        roofY + lensOffsetY,
+        x * modelScale,
+        lensY,
         roofZ
       )
     );
@@ -425,7 +469,7 @@ function installEmergencyLights(model, bounds) {
   }
 
   // ========================================
-  // FOUR INVISIBLE EMERGENCY SPOTLIGHTS
+  // INVISIBLE EMERGENCY SPOTLIGHTS
   // ========================================
 
   function addEmergencySpot(color, x, y, z, targetZ, side) {
@@ -477,7 +521,7 @@ function installEmergencyLights(model, bounds) {
     rearZ, rearZ + 15, 'red'
   );
 
-  console.log('Realistic roof lightbar installed.');
+  console.log('Small roof lightbar installed.');
 }
 
 // ==========================================
