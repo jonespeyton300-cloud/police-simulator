@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
@@ -175,36 +174,52 @@ let brakeLights = [];
 let headlightsOn = false;
 let turnSignal = 'off';
 
-// Rounded LED lens
-function makeRoundedLight(color, width, height, depth, x, y, z, parent) {
-  const material = new THREE.MeshBasicMaterial({
+// Create an invisible point light.
+// It emits light without adding a visible block to the vehicle.
+function makeInvisiblePointLight(color, intensity, distance, x, y, z, parent) {
+  const light = new THREE.PointLight(
     color,
-    toneMapped: false
-  });
+    intensity,
+    distance,
+    2
+  );
 
+  light.position.set(x, y, z);
+  light.visible = false;
+  parent.add(light);
+
+  return light;
+}
+
+// Rounded lens objects are retained but permanently hidden.
+function makeHiddenLens(color, width, height, depth, x, y, z, parent) {
   const lens = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 24, 16),
-    material
+    new THREE.SphereGeometry(1, 16, 12),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0
+    })
   );
 
   lens.scale.set(width / 2, height / 2, depth / 2);
   lens.position.set(x, y, z);
+  lens.visible = false;
   parent.add(lens);
 
   return lens;
 }
 
-// Calculate accurate vehicle-local bounds from individual mesh geometry
+// Calculate vehicle-local bounds from individual model meshes.
 function getVehicleBounds(model) {
   model.updateWorldMatrix(true, true);
   policeCar.updateWorldMatrix(true, true);
 
   const localBox = new THREE.Box3();
-  const corners = [];
-
-  for (let i = 0; i < 8; i++) {
-    corners.push(new THREE.Vector3());
-  }
+  const corners = Array.from(
+    { length: 8 },
+    () => new THREE.Vector3()
+  );
 
   model.traverse((child) => {
     if (!child.isMesh || !child.geometry) return;
@@ -238,7 +253,7 @@ function getVehicleBounds(model) {
   return localBox;
 }
 
-// Find the actual body surface by raycasting against the model
+// Find a point on the actual front or rear surface.
 function findBodySurface(modelMeshes, bounds, x, isFront) {
   const raycaster = new THREE.Raycaster();
 
@@ -253,6 +268,7 @@ function findBodySurface(modelMeshes, bounds, x, isFront) {
   );
 
   const heightFractions = [0.62, 0.58, 0.66, 0.54, 0.70];
+
   let bestPoint = null;
   let bestScore = Infinity;
 
@@ -285,14 +301,10 @@ function findBodySurface(modelMeshes, bounds, x, isFront) {
     }
   }
 
-  // Safe fallback if the model has no surface at the sampled position
   if (!bestPoint) {
-    const y = bounds.min.y +
-      (bounds.max.y - bounds.min.y) * 0.62;
-
     bestPoint = new THREE.Vector3(
       x,
-      y,
+      bounds.min.y + (bounds.max.y - bounds.min.y) * 0.62,
       isFront ? bounds.min.z : bounds.max.z
     );
   }
@@ -300,13 +312,13 @@ function findBodySurface(modelMeshes, bounds, x, isFront) {
   return bestPoint;
 }
 
-// Convert a point from vehicle coordinates into model coordinates
+// Convert vehicle-local position to model-local position.
 function vehiclePointToModel(model, point) {
   const worldPoint = policeCar.localToWorld(point.clone());
   return model.worldToLocal(worldPoint);
 }
 
-// Create a spotlight pointing forward
+// Create working headlights.
 function makeSpotlight(x, y, z, targetZ) {
   const beam = new THREE.SpotLight(
     0xffffff,
@@ -327,16 +339,13 @@ function makeSpotlight(x, y, z, targetZ) {
   return beam;
 }
 
-// INSTALL LIGHTS USING ACTUAL MODEL SURFACES
+// INSTALL VEHICLE LIGHTS
 function installVehicleLights(model) {
   headlights = [];
   daytimeLights = [];
   leftSignals = [];
   rightSignals = [];
   brakeLights = [];
-
-  model.updateWorldMatrix(true, true);
-  policeCar.updateWorldMatrix(true, true);
 
   const bounds = getVehicleBounds(model);
 
@@ -351,32 +360,31 @@ function installVehicleLights(model) {
     }
   });
 
-  // The Explorer faces negative Z.
-  // Negative X is the driver's left side.
+  // Explorer faces negative Z.
   const leftX = bounds.min.x + width * 0.29;
   const rightX = bounds.max.x - width * 0.29;
 
-  // Raycast to find the actual front and rear body surfaces.
   const frontLeft = findBodySurface(modelMeshes, bounds, leftX, true);
   const frontRight = findBodySurface(modelMeshes, bounds, rightX, true);
 
   const rearLeft = findBodySurface(modelMeshes, bounds, leftX, false);
   const rearRight = findBodySurface(modelMeshes, bounds, rightX, false);
 
-  console.log('Explorer vehicle bounds:', bounds);
-  console.log('Front left surface:', frontLeft);
-  console.log('Front right surface:', frontRight);
-  console.log('Rear left surface:', rearLeft);
-  console.log('Rear right surface:', rearRight);
+  console.log('Vehicle lighting positions:', {
+    frontLeft,
+    frontRight,
+    rearLeft,
+    rearRight
+  });
 
-  // FRONT HEADLIGHTS
+  // HEADLIGHTS: invisible lenses plus working spotlights.
   for (const point of [frontLeft, frontRight]) {
     const lensPoint = point.clone();
     lensPoint.z -= 0.035;
 
     const modelPoint = vehiclePointToModel(model, lensPoint);
 
-    const lens = makeRoundedLight(
+    makeHiddenLens(
       0xffffff,
       width * 0.115,
       height * 0.052,
@@ -386,8 +394,6 @@ function installVehicleLights(model) {
       modelPoint.z,
       model
     );
-
-    headlights.push(lens);
 
     const beam = makeSpotlight(
       point.x,
@@ -399,7 +405,7 @@ function installVehicleLights(model) {
     headlights.push(beam);
   }
 
-  // DAYTIME RUNNING LIGHTS
+  // DAYTIME RUNNING LIGHTS: hidden decorative lenses.
   for (const point of [frontLeft, frontRight]) {
     const drlPoint = point.clone();
     drlPoint.y -= height * 0.035;
@@ -407,7 +413,7 @@ function installVehicleLights(model) {
 
     const modelPoint = vehiclePointToModel(model, drlPoint);
 
-    const drl = makeRoundedLight(
+    makeHiddenLens(
       0xe8fbff,
       width * 0.13,
       height * 0.022,
@@ -417,20 +423,16 @@ function installVehicleLights(model) {
       modelPoint.z,
       model
     );
-
-    daytimeLights.push(drl);
   }
 
-  // TURN SIGNALS
+  // TURN SIGNALS: invisible lenses with working amber point lights.
   function makeIndicator(point, isFront) {
     const signalPoint = point.clone();
-
-    // Put the lens just outside the vehicle surface.
     signalPoint.z += isFront ? -0.055 : 0.055;
 
     const modelPoint = vehiclePointToModel(model, signalPoint);
 
-    const signal = makeRoundedLight(
+    makeHiddenLens(
       0xffa000,
       width * 0.075,
       height * 0.045,
@@ -441,8 +443,17 @@ function installVehicleLights(model) {
       model
     );
 
-    signal.visible = false;
-    return signal;
+    const signalLight = makeInvisiblePointLight(
+      0xff9900,
+      3,
+      5,
+      modelPoint.x,
+      modelPoint.y,
+      modelPoint.z,
+      model
+    );
+
+    return signalLight;
   }
 
   leftSignals.push(makeIndicator(frontLeft, true));
@@ -451,19 +462,18 @@ function installVehicleLights(model) {
   rightSignals.push(makeIndicator(frontRight, true));
   rightSignals.push(makeIndicator(rearRight, false));
 
-  // REAR BRAKE LIGHTS
+  // BRAKE LIGHTS: invisible lenses with working red point lights.
   for (const point of [rearLeft, rearRight]) {
     const brakePoint = point.clone();
 
-    // Keep brake lamps close to the taillight height.
     brakePoint.x *= 0.72;
     brakePoint.y -= height * 0.025;
     brakePoint.z += 0.065;
 
     const modelPoint = vehiclePointToModel(model, brakePoint);
 
-    const brake = makeRoundedLight(
-      0x550000,
+    makeHiddenLens(
+      0xff1010,
       width * 0.105,
       height * 0.055,
       0.045,
@@ -473,25 +483,28 @@ function installVehicleLights(model) {
       model
     );
 
-    brake.userData.dimColor = 0x550000;
-    brake.userData.brightColor = 0xff1010;
+    const brakeLight = makeInvisiblePointLight(
+      0xff1010,
+      0,
+      5,
+      modelPoint.x,
+      modelPoint.y,
+      modelPoint.z,
+      model
+    );
 
-    brakeLights.push(brake);
+    brakeLights.push(brakeLight);
   }
 
   updateVehicleLights();
 
-  console.log('Explorer surface-based lighting installed.');
+  console.log('Invisible vehicle light lenses installed.');
 }
 
-// UPDATE HEADLIGHTS AND DAYTIME RUNNING LIGHTS
+// UPDATE HEADLIGHTS
 function updateVehicleLights() {
   headlights.forEach(light => {
     light.visible = headlightsOn;
-  });
-
-  daytimeLights.forEach(light => {
-    light.visible = !headlightsOn;
   });
 
   const lightStatus = document.getElementById('lightStatus');
@@ -499,7 +512,7 @@ function updateVehicleLights() {
   if (lightStatus) {
     lightStatus.textContent = headlightsOn
       ? 'HEADLIGHTS ON'
-      : 'DAYTIME RUNNING LIGHTS';
+      : 'LIGHTS OFF';
   }
 }
 
@@ -518,7 +531,7 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // Preserve the working Explorer orientation and scale.
+    // Preserve the working Explorer alignment.
     model.rotation.y = Math.PI;
 
     const originalBox = new THREE.Box3().setFromObject(model);
@@ -727,7 +740,7 @@ function animate() {
     message.textContent = 'Press E to exit';
   }
 
-  // FRONT AND REAR SIGNALS FLASH TOGETHER
+  // TURN SIGNALS
   const signalFlash = Math.floor(performance.now() / 450) % 2 === 0;
 
   leftSignals.forEach(light => {
@@ -740,9 +753,7 @@ function animate() {
 
   // BRAKE LIGHTS
   brakeLights.forEach(light => {
-    light.material.color.set(
-      keys.s ? light.userData.brightColor : light.userData.dimColor
-    );
+    light.intensity = keys.s ? 3 : 0;
   });
 
   renderer.render(scene, camera);
