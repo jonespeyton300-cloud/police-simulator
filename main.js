@@ -244,6 +244,7 @@ makeTemporaryCar();
 
 let headlights = [];
 let emergencyModules = [];
+let roofEmergencyLights = [];
 
 let headlightsOn = false;
 let emergencyLightsOn = false;
@@ -370,15 +371,79 @@ function makeSpotlight(x, y, z, targetZ) {
 }
 
 // ==========================================
-// INVISIBLE EMERGENCY LIGHTS
+// EMERGENCY LIGHTS AND ROOF LIGHTBAR
 // ==========================================
 
 function installEmergencyLights(model, bounds) {
   emergencyModules = [];
+  roofEmergencyLights = [];
 
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
+  // ROOF LIGHTBAR BASE
+  const barBase = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      width * 0.72,
+      height * 0.035,
+      width * 0.13
+    ),
+    new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      metalness: 0.6,
+      roughness: 0.35
+    })
+  );
+
+  barBase.position.set(
+    0,
+    bounds.max.y - height * 0.075,
+    (bounds.min.z + bounds.max.z) / 2
+  );
+
+  model.add(barBase);
+
+  // FOUR VISIBLE ROOF LIGHTS
+  const colors = [
+    0xff0000,
+    0xff0000,
+    0x0066ff,
+    0x0066ff
+  ];
+
+  for (let i = 0; i < 4; i++) {
+    const material = new THREE.MeshStandardMaterial({
+      color: colors[i],
+      emissive: colors[i],
+      emissiveIntensity: 0,
+      metalness: 0.1,
+      roughness: 0.25
+    });
+
+    const lens = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        width * 0.16,
+        height * 0.055,
+        width * 0.105
+      ),
+      material
+    );
+
+    lens.position.set(
+      (i - 1.5) * width * 0.17,
+      barBase.position.y + height * 0.045,
+      barBase.position.z
+    );
+
+    model.add(lens);
+
+    roofEmergencyLights.push({
+      material,
+      side: i < 2 ? 'red' : 'blue'
+    });
+  }
+
+  // INVISIBLE EMERGENCY SPOTLIGHTS
   function addEmergencySpot(color, x, y, z, targetZ, side) {
     const position = vehiclePointToModel(
       model,
@@ -393,15 +458,14 @@ function installEmergencyLights(model, bounds) {
     const light = new THREE.SpotLight(
       color,
       0,
-      16,
-      Math.PI / 3,
-      0.7,
-      2
+      25,
+      Math.PI / 2.5,
+      0.5,
+      1
     );
 
     light.position.copy(position);
     light.target.position.copy(targetPosition);
-
     light.castShadow = false;
 
     model.add(light);
@@ -417,45 +481,43 @@ function installEmergencyLights(model, bounds) {
   const rearZ = bounds.max.z + 0.08;
   const lightY = bounds.min.y + height * 0.62;
 
-  // Front red and blue.
   addEmergencySpot(
-    0xff1010,
+    0xff0000,
     -width * 0.25,
     lightY,
     frontZ,
-    frontZ - 12,
+    frontZ - 15,
     'red'
   );
 
   addEmergencySpot(
-    0x086bff,
+    0x0066ff,
     width * 0.25,
     lightY,
     frontZ,
-    frontZ - 12,
+    frontZ - 15,
     'blue'
   );
 
-  // Rear blue and red.
   addEmergencySpot(
-    0x086bff,
+    0x0066ff,
     -width * 0.25,
     lightY,
     rearZ,
-    rearZ + 12,
+    rearZ + 15,
     'blue'
   );
 
   addEmergencySpot(
-    0xff1010,
+    0xff0000,
     width * 0.25,
     lightY,
     rearZ,
-    rearZ + 12,
+    rearZ + 15,
     'red'
   );
 
-  console.log('Four invisible emergency lights installed.');
+  console.log('Roof lightbar and emergency lights installed.');
 }
 
 // ==========================================
@@ -470,18 +532,9 @@ function installVehicleLights(model) {
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  const modelMeshes = [];
-
-  model.traverse((child) => {
-    if (child.isMesh && child.geometry) {
-      modelMeshes.push(child);
-    }
-  });
-
   const leftX = bounds.min.x + width * 0.29;
   const rightX = bounds.max.x - width * 0.29;
 
-  // Front positions.
   const frontLeft = new THREE.Vector3(
     leftX,
     bounds.min.y + height * 0.62,
@@ -494,7 +547,6 @@ function installVehicleLights(model) {
     bounds.min.z
   );
 
-  // Hidden headlight lenses.
   for (const point of [frontLeft, frontRight]) {
     const lensPoint = point.clone();
     lensPoint.z -= 0.035;
@@ -522,7 +574,6 @@ function installVehicleLights(model) {
     headlights.push(beam);
   }
 
-  // Install invisible red and blue emergency lights.
   installEmergencyLights(model, bounds);
 
   updateVehicleLights();
@@ -573,6 +624,10 @@ function updateEmergencyLights(time) {
       module.light.intensity = 0;
     });
 
+    roofEmergencyLights.forEach(light => {
+      light.material.emissiveIntensity = 0;
+    });
+
     return;
   }
 
@@ -583,31 +638,32 @@ function updateEmergencyLights(time) {
     (time % 1000 < 120) ||
     (time % 1000 > 240 && time % 1000 < 360);
 
-  emergencyModules.forEach(module => {
-    let on = false;
-
+  function isSideOn(side) {
     if (emergencyPattern === 0) {
-      on = module.side === (
-        phase === 0 ? 'red' : 'blue'
-      );
+      return side === (phase === 0 ? 'red' : 'blue');
     }
 
     if (emergencyPattern === 1) {
-      on = module.side === (
-        fastPhase === 0 ? 'red' : 'blue'
+      return side === (fastPhase === 0 ? 'red' : 'blue');
+    }
+
+    return doubleFlash &&
+      side === (
+        Math.floor(time / 500) % 2 === 0
+          ? 'red'
+          : 'blue'
       );
-    }
+  }
 
-    if (emergencyPattern === 2) {
-      on = doubleFlash &&
-        module.side === (
-          Math.floor(time / 500) % 2 === 0
-            ? 'red'
-            : 'blue'
-        );
-    }
+  // BRIGHTER SPOTLIGHTS
+  emergencyModules.forEach(module => {
+    module.light.intensity = isSideOn(module.side) ? 65 : 0;
+  });
 
-    module.light.intensity = on ? 22 : 0;
+  // VISIBLE ROOF LIGHTBAR
+  roofEmergencyLights.forEach(light => {
+    light.material.emissiveIntensity =
+      isSideOn(light.side) ? 8 : 0.05;
   });
 }
 
@@ -631,7 +687,6 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // Preserve working Explorer alignment.
     model.rotation.y = Math.PI;
 
     const originalBox = new THREE.Box3().setFromObject(model);
@@ -905,7 +960,6 @@ function animate() {
     message.textContent = 'Press E to exit';
   }
 
-  // EMERGENCY LIGHT ANIMATION
   updateEmergencyLights(performance.now());
 
   renderer.render(scene, camera);
