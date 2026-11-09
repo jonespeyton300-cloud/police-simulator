@@ -25,7 +25,7 @@ renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 // ==========================================
-// LIGHTING
+// WORLD LIGHTING
 // ==========================================
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 2));
@@ -180,6 +180,7 @@ const policeCar = new THREE.Group();
 scene.add(policeCar);
 policeCar.position.set(6, 0, 8);
 
+// Temporary vehicle while model loads
 function makeTemporaryCar() {
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 1, 4.8),
@@ -196,19 +197,6 @@ function makeTemporaryCar() {
 
   roof.position.y = 1.75;
   policeCar.add(roof);
-
-  for (const x of [-1.15, 1.15]) {
-    for (const z of [-1.5, 1.5]) {
-      const wheel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4, 0.4, 0.25, 20),
-        new THREE.MeshStandardMaterial({ color: 0x111111 })
-      );
-
-      wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(x, 0.45, z);
-      policeCar.add(wheel);
-    }
-  }
 }
 
 makeTemporaryCar();
@@ -218,34 +206,12 @@ makeTemporaryCar();
 // ==========================================
 
 let headlights = [];
-let emergencyModules = [];
-let roofEmergencyLights = [];
+let emergencyLights = [];
+let emergencySpotlights = [];
 
 let headlightsOn = false;
 let emergencyLightsOn = false;
 let emergencyPattern = 0;
-
-// ==========================================
-// HIDDEN LENS
-// ==========================================
-
-function makeHiddenLens(color, width, height, depth, x, y, z, parent) {
-  const lens = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 8, 6),
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0
-    })
-  );
-
-  lens.scale.set(width / 2, height / 2, depth / 2);
-  lens.position.set(x, y, z);
-  lens.visible = false;
-  parent.add(lens);
-
-  return lens;
-}
 
 // ==========================================
 // VEHICLE BOUNDS
@@ -291,416 +257,368 @@ function getVehicleBounds(model) {
 }
 
 // ==========================================
-// COORDINATE CONVERSION
+// LIGHT HELPERS
+// All accessory positions are in vehicle space.
 // ==========================================
 
-function vehiclePointToModel(model, point) {
-  const worldPoint = policeCar.localToWorld(point.clone());
-  return model.worldToLocal(worldPoint);
-}
+function makeLightPanel(parent, x, y, z, width, height, depth, color) {
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0,
+    roughness: 0.22,
+    metalness: 0.05
+  });
 
-// ==========================================
-// HEADLIGHT SPOTLIGHTS
-// ==========================================
-
-function makeSpotlight(x, y, z, targetZ) {
-  const beam = new THREE.SpotLight(
-    0xffffff, 55, 65, Math.PI / 5, 0.45, 1
+  const mesh = new THREE.Mesh(
+    new RoundedBoxGeometry(
+      width,
+      height,
+      depth,
+      3,
+      Math.min(height * 0.2, depth * 0.2)
+    ),
+    material
   );
 
-  beam.position.set(x, y, z);
-  beam.target.position.set(x, y - 0.2, targetZ);
-  beam.visible = false;
-  beam.castShadow = false;
+  mesh.position.set(x, y, z);
+  parent.add(mesh);
 
-  policeCar.add(beam);
-  policeCar.add(beam.target);
+  const entry = { mesh, material, color };
+  emergencyLights.push(entry);
 
-  return beam;
+  return entry;
+}
+
+function makeLightSpot(parent, color, x, y, z, targetZ, distance, angle) {
+  const light = new THREE.SpotLight(
+    color,
+    0,
+    distance,
+    angle,
+    0.55,
+    1
+  );
+
+  light.position.set(x, y, z);
+  light.target.position.set(x, y, targetZ);
+  light.castShadow = false;
+
+  parent.add(light);
+  parent.add(light.target);
+
+  const entry = { light, color };
+  emergencySpotlights.push(entry);
+
+  return entry;
 }
 
 // ==========================================
-// REALISTIC LOW-PROFILE LED LIGHTBAR
+// HEADLIGHTS
 // ==========================================
 
-function installEmergencyLights(model, bounds) {
-  emergencyModules = [];
-  roofEmergencyLights = [];
+function installHeadlights(bounds) {
+  headlights = [];
 
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  const modelScale = Math.abs(model.scale.x) || 1;
+  const frontZ = bounds.min.z;
+  const headlightY = bounds.min.y + height * 0.66;
 
-  // Convert vehicle dimensions into model-local dimensions.
-  const localWidth = width / modelScale;
-  const localHeight = height / modelScale;
+  // Keep the headlights near the outer front corners.
+  const headlightX = width * 0.32;
 
-  // Place the bar just above the highest point of the vehicle.
-  const roofY = bounds.max.y + height * 0.004;
-  const roofZ = (bounds.min.z + bounds.max.z) / 2;
-
-  // Overall lightbar proportions.
-  const barWidth = localWidth * 0.49;
-  const barDepth = localWidth * 0.095;
-
-  const baseHeight = localHeight * 0.009;
-  const lensHeight = localHeight * 0.026;
-
-  const lensDepth = barDepth * 0.76;
-
-  // Convert a vehicle-space position to model space.
-  function addPartPosition(mesh, x, y, z) {
-    mesh.position.copy(
-      vehiclePointToModel(
-        model,
-        new THREE.Vector3(x, y, z)
-      )
+  for (const x of [-headlightX, headlightX]) {
+    // Small white lens positioned just in front of the vehicle.
+    const lens = new THREE.Mesh(
+      new RoundedBoxGeometry(
+        width * 0.105,
+        height * 0.055,
+        0.035,
+        3,
+        0.012
+      ),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        emissive: 0xffffff,
+        emissiveIntensity: 0.35,
+        roughness: 0.2
+      })
     );
 
-    model.add(mesh);
+    lens.position.set(x, headlightY, frontZ - 0.018);
+    policeCar.add(lens);
+
+    const beam = makeLightSpot(
+      policeCar,
+      0xffffff,
+      x,
+      headlightY,
+      frontZ - 0.08,
+      frontZ - 30,
+      55,
+      Math.PI / 5
+    );
+
+    headlights.push({ lens, beam });
   }
 
-  // Convert vehicle-space dimensions to model-space dimensions.
-  function localDimensions(w, h, d) {
-    return [
-      w / modelScale,
-      h / modelScale,
-      d / modelScale
-    ];
-  }
+  updateVehicleLights();
+}
 
-  // Black metal mounting base.
-  const [baseW, baseH, baseD] = localDimensions(
-    barWidth,
-    baseHeight,
-    barDepth
-  );
+// ==========================================
+// ROOF LIGHTBAR
+// ==========================================
 
+function installRoofLightbar(bounds) {
+  const width = bounds.max.x - bounds.min.x;
+  const height = bounds.max.y - bounds.min.y;
+
+  // Slimmer than the earlier lightbar.
+  const barWidth = width * 0.54;
+  const barDepth = width * 0.075;
+  const baseHeight = height * 0.018;
+  const lensHeight = height * 0.035;
+
+  // The lightbar sits just above the roof.
+  const roofY = bounds.max.y + height * 0.006;
+  const roofZ = (bounds.min.z + bounds.max.z) / 2;
+
+  // Black mounting base.
   const base = new THREE.Mesh(
     new RoundedBoxGeometry(
-      baseW,
-      baseH,
-      baseD,
-      3,
-      Math.max(0.001, baseH * 0.2)
+      barWidth,
+      baseHeight,
+      barDepth,
+      4,
+      baseHeight * 0.2
     ),
     new THREE.MeshStandardMaterial({
       color: 0x101216,
-      metalness: 0.75,
-      roughness: 0.28
+      metalness: 0.7,
+      roughness: 0.3
     })
   );
 
-  addPartPosition(
-    base,
+  base.position.set(
     0,
     roofY + baseHeight / 2,
     roofZ
   );
 
-  // Small black mounting feet.
-  const footMaterial = new THREE.MeshStandardMaterial({
-    color: 0x08090b,
-    metalness: 0.6,
-    roughness: 0.35
-  });
+  policeCar.add(base);
 
+  // Small mounting feet.
   for (const x of [-barWidth * 0.32, barWidth * 0.32]) {
-    const [footW, footH, footD] = localDimensions(
-      barWidth * 0.035,
-      baseHeight * 0.8,
-      barDepth * 0.55
-    );
-
     const foot = new THREE.Mesh(
-      new RoundedBoxGeometry(footW, footH, footD, 2, footH * 0.2),
-      footMaterial
-    );
-
-    addPartPosition(
-      foot,
-      x,
-      roofY - baseHeight * 0.15,
-      roofZ
-    );
-  }
-
-  // Six separate LED modules: three red and three blue.
-  const moduleWidth = barWidth * 0.145;
-  const moduleHeight = lensHeight * 0.78;
-  const moduleDepth = lensDepth * 0.72;
-
-  const moduleSpacing = barWidth * 0.163;
-  const moduleY = roofY + baseHeight + lensHeight / 2;
-
-  const redMaterials = [];
-  const blueMaterials = [];
-
-  for (let i = 0; i < 6; i++) {
-    const side = i < 3 ? 'red' : 'blue';
-    const color = side === 'red' ? 0xff2020 : 0x176bff;
-    const emissive = side === 'red' ? 0xff0000 : 0x004cff;
-
-    const x = (i - 2.5) * moduleSpacing;
-
-    // Dark reflector behind each LED module.
-    const [reflectW, reflectH, reflectD] = localDimensions(
-      moduleWidth * 1.08,
-      moduleHeight * 1.12,
-      moduleDepth * 1.08
-    );
-
-    const reflector = new THREE.Mesh(
       new RoundedBoxGeometry(
-        reflectW,
-        reflectH,
-        reflectD,
-        3,
-        reflectH * 0.15
+        barWidth * 0.055,
+        baseHeight * 0.75,
+        barDepth * 0.55,
+        2,
+        baseHeight * 0.15
       ),
       new THREE.MeshStandardMaterial({
-        color: 0x171a20,
-        metalness: 0.8,
-        roughness: 0.25
+        color: 0x08090b,
+        metalness: 0.6,
+        roughness: 0.4
       })
     );
 
-    addPartPosition(reflector, x, moduleY, roofZ);
-
-    // LED lens material.
-    const ledMaterial = new THREE.MeshPhysicalMaterial({
-      color,
-      emissive,
-      emissiveIntensity: 0,
-      roughness: 0.18,
-      metalness: 0,
-      clearcoat: 1,
-      clearcoatRoughness: 0.08
-    });
-
-    const [lensW, lensH, lensD] = localDimensions(
-      moduleWidth * 0.88,
-      moduleHeight * 0.78,
-      moduleDepth * 0.72
-    );
-
-    const ledLens = new THREE.Mesh(
-      new RoundedBoxGeometry(
-        lensW,
-        lensH,
-        lensD,
-        4,
-        lensH * 0.18
-      ),
-      ledMaterial
-    );
-
-    addPartPosition(
-      ledLens,
+    foot.position.set(
       x,
-      moduleY,
+      roofY,
       roofZ
     );
 
-    roofEmergencyLights.push({
-      material: ledMaterial,
-      side
-    });
-
-    if (side === 'red') {
-      redMaterials.push(ledMaterial);
-    } else {
-      blueMaterials.push(ledMaterial);
-    }
-
-    // Small internal LED points across each module.
-    const dotMaterial = new THREE.MeshBasicMaterial({
-      color: side === 'red' ? 0xffaaaa : 0xaacaff
-    });
-
-    for (let dot = -1; dot <= 1; dot++) {
-      const [dotW, dotH, dotD] = localDimensions(
-        moduleWidth * 0.13,
-        moduleHeight * 0.2,
-        moduleDepth * 0.12
-      );
-
-      const dotMesh = new THREE.Mesh(
-        new RoundedBoxGeometry(
-          dotW,
-          dotH,
-          dotD,
-          2,
-          dotH * 0.2
-        ),
-        dotMaterial
-      );
-
-      addPartPosition(
-        dotMesh,
-        x + dot * moduleWidth * 0.23,
-        moduleY,
-        roofZ - barDepth * 0.12
-      );
-    }
+    policeCar.add(foot);
   }
 
-  // Smoked transparent outer cover.
-  // This sits over the LED modules without hiding their colors.
-  const coverHeight = baseHeight + lensHeight * 1.12;
+  // Six small LED sections.
+  const moduleWidth = barWidth * 0.145;
+  const moduleDepth = barDepth * 0.68;
+  const moduleHeight = lensHeight * 0.78;
+  const spacing = barWidth * 0.16;
 
-  const [coverW, coverH, coverD] = localDimensions(
-    barWidth * 1.015,
-    coverHeight,
-    barDepth * 0.94
-  );
+  for (let i = 0; i < 6; i++) {
+    const side = i < 3 ? 'red' : 'blue';
+    const color = side === 'red' ? 0xff1010 : 0x075dff;
 
-  const coverMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x26313e,
-    transparent: true,
-    opacity: 0.2,
-    roughness: 0.16,
-    metalness: 0.15,
-    clearcoat: 1,
-    clearcoatRoughness: 0.08,
-    depthWrite: false
-  });
+    const x = (i - 2.5) * spacing;
+    const y = roofY + baseHeight + moduleHeight / 2;
 
-  const cover = new THREE.Mesh(
-    new RoundedBoxGeometry(
-      coverW,
-      coverH,
-      coverD,
-      5,
-      coverH * 0.12
-    ),
-    coverMaterial
-  );
-
-  cover.renderOrder = 2;
-
-  addPartPosition(
-    cover,
-    0,
-    roofY + coverHeight / 2,
-    roofZ
-  );
-
-  // ========================================
-  // INVISIBLE EMERGENCY SPOTLIGHTS
-  // ========================================
-
-  function addEmergencySpot(color, x, y, z, targetZ, side) {
-    const position = vehiclePointToModel(
-      model,
-      new THREE.Vector3(x, y, z)
+    // Dark module housing.
+    const housing = new THREE.Mesh(
+      new RoundedBoxGeometry(
+        moduleWidth * 1.08,
+        moduleHeight * 1.15,
+        moduleDepth * 1.08,
+        3,
+        moduleHeight * 0.15
+      ),
+      new THREE.MeshStandardMaterial({
+        color: 0x11151b,
+        metalness: 0.55,
+        roughness: 0.28
+      })
     );
 
-    const targetPosition = vehiclePointToModel(
-      model,
-      new THREE.Vector3(x, y - 0.2, targetZ)
+    housing.position.set(x, y, roofZ);
+    policeCar.add(housing);
+
+    // Colored LED lens.
+    makeLightPanel(
+      policeCar,
+      x,
+      y,
+      roofZ - moduleDepth * 0.08,
+      moduleWidth * 0.83,
+      moduleHeight * 0.72,
+      moduleDepth * 0.75,
+      color
     );
-
-    const light = new THREE.SpotLight(
-      color, 0, 25, Math.PI / 2.5, 0.5, 1
-    );
-
-    light.position.copy(position);
-    light.target.position.copy(targetPosition);
-    light.castShadow = false;
-
-    model.add(light);
-    model.add(light.target);
-
-    emergencyModules.push({ light, side });
   }
 
-  const frontZ = bounds.min.z - 0.08;
-  const rearZ = bounds.max.z + 0.08;
-  const lightY = bounds.min.y + height * 0.62;
+  // Dark end caps.
+  for (const x of [-barWidth * 0.49, barWidth * 0.49]) {
+    const cap = new THREE.Mesh(
+      new RoundedBoxGeometry(
+        moduleWidth * 0.35,
+        lensHeight * 0.65,
+        barDepth * 0.7,
+        3,
+        0.01
+      ),
+      new THREE.MeshStandardMaterial({
+        color: 0x11151b,
+        metalness: 0.5,
+        roughness: 0.3
+      })
+    );
 
-  addEmergencySpot(
-    0xff0000, -width * 0.25, lightY,
-    frontZ, frontZ - 15, 'red'
-  );
+    cap.position.set(
+      x,
+      roofY + baseHeight + lensHeight * 0.35,
+      roofZ
+    );
 
-  addEmergencySpot(
-    0x0066ff, width * 0.25, lightY,
-    frontZ, frontZ - 15, 'blue'
-  );
-
-  addEmergencySpot(
-    0x0066ff, -width * 0.25, lightY,
-    rearZ, rearZ + 15, 'blue'
-  );
-
-  addEmergencySpot(
-    0xff0000, width * 0.25, lightY,
-    rearZ, rearZ + 15, 'red'
-  );
-
-  console.log('Realistic LED lightbar installed.');
+    policeCar.add(cap);
+  }
 }
 
 // ==========================================
-// INSTALL HEADLIGHTS
+// FRONT GRILLE EMERGENCY LIGHTS
 // ==========================================
 
-function installVehicleLights(model) {
-  headlights = [];
-
-  const bounds = getVehicleBounds(model);
+function installFrontGrilleLights(bounds) {
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  const leftX = bounds.min.x + width * 0.29;
-  const rightX = bounds.max.x - width * 0.29;
+  const frontZ = bounds.min.z - 0.035;
+  const grilleY = bounds.min.y + height * 0.43;
 
-  const frontLeft = new THREE.Vector3(
-    leftX, bounds.min.y + height * 0.62, bounds.min.z
-  );
+  const positions = [
+    { x: -width * 0.19, color: 0xff1010, side: 'red' },
+    { x: width * 0.19, color: 0x075dff, side: 'blue' }
+  ];
 
-  const frontRight = new THREE.Vector3(
-    rightX, bounds.min.y + height * 0.62, bounds.min.z
-  );
-
-  for (const point of [frontLeft, frontRight]) {
-    const lensPoint = point.clone();
-    lensPoint.z -= 0.035;
-
-    const modelPoint = vehiclePointToModel(model, lensPoint);
-
-    makeHiddenLens(
-      0xffffff,
-      width * 0.115,
-      height * 0.052,
+  for (const item of positions) {
+    makeLightPanel(
+      policeCar,
+      item.x,
+      grilleY,
+      frontZ,
+      width * 0.095,
+      height * 0.055,
       0.045,
-      modelPoint.x,
-      modelPoint.y,
-      modelPoint.z,
-      model
+      item.color
     );
 
-    headlights.push(
-      makeSpotlight(
-        point.x, point.y, point.z - 0.12, point.z - 30
-      )
+    makeLightSpot(
+      policeCar,
+      item.color,
+      item.x,
+      grilleY,
+      frontZ - 0.06,
+      frontZ - 18,
+      24,
+      Math.PI / 3
     );
   }
-
-  installEmergencyLights(model, bounds);
-  updateVehicleLights();
-  updateEmergencyStatus();
 }
 
 // ==========================================
-// UPDATE HEADLIGHTS
+// REAR EMERGENCY LIGHTS
+// ==========================================
+
+function installRearLights(bounds) {
+  const width = bounds.max.x - bounds.min.x;
+  const height = bounds.max.y - bounds.min.y;
+
+  const rearZ = bounds.max.z + 0.035;
+  const rearY = bounds.min.y + height * 0.62;
+
+  const positions = [
+    { x: -width * 0.30, color: 0x075dff, side: 'blue' },
+    { x: width * 0.30, color: 0xff1010, side: 'red' }
+  ];
+
+  for (const item of positions) {
+    makeLightPanel(
+      policeCar,
+      item.x,
+      rearY,
+      rearZ,
+      width * 0.10,
+      height * 0.055,
+      0.045,
+      item.color
+    );
+
+    makeLightSpot(
+      policeCar,
+      item.color,
+      item.x,
+      rearY,
+      rearZ + 0.06,
+      rearZ + 18,
+      24,
+      Math.PI / 3
+    );
+  }
+}
+
+// ==========================================
+// INSTALL ALL VEHICLE LIGHTS
+// ==========================================
+
+function installVehicleLights(model) {
+  emergencyLights = [];
+  emergencySpotlights = [];
+
+  const bounds = getVehicleBounds(model);
+
+  installHeadlights(bounds);
+  installRoofLightbar(bounds);
+  installFrontGrilleLights(bounds);
+  installRearLights(bounds);
+
+  updateVehicleLights();
+  updateEmergencyStatus();
+
+  console.log('Explorer lighting installed using vehicle dimensions:', bounds);
+}
+
+// ==========================================
+// HEADLIGHT CONTROL
 // ==========================================
 
 function updateVehicleLights() {
-  headlights.forEach(light => {
-    light.visible = headlightsOn;
+  headlights.forEach(({ lens, beam }) => {
+    lens.visible = true;
+    lens.material.emissiveIntensity = headlightsOn ? 2.5 : 0.15;
+    beam.light.intensity = headlightsOn ? 55 : 0;
   });
 
   const status = document.getElementById('lightStatus');
@@ -730,15 +648,15 @@ function updateEmergencyStatus() {
 // ==========================================
 
 function updateEmergencyLights(time) {
-  if (!emergencyModules.length) return;
+  if (!emergencyLights.length) return;
 
   if (!emergencyLightsOn) {
-    emergencyModules.forEach(module => {
-      module.light.intensity = 0;
+    emergencyLights.forEach(item => {
+      item.material.emissiveIntensity = 0;
     });
 
-    roofEmergencyLights.forEach(light => {
-      light.material.emissiveIntensity = 0;
+    emergencySpotlights.forEach(item => {
+      item.light.intensity = 0;
     });
 
     return;
@@ -751,7 +669,7 @@ function updateEmergencyLights(time) {
     (time % 1000 < 120) ||
     (time % 1000 > 240 && time % 1000 < 360);
 
-  function isSideOn(side) {
+  function sideIsOn(side) {
     if (emergencyPattern === 0) {
       return side === (phase === 0 ? 'red' : 'blue');
     }
@@ -766,13 +684,17 @@ function updateEmergencyLights(time) {
       );
   }
 
-  emergencyModules.forEach(module => {
-    module.light.intensity = isSideOn(module.side) ? 65 : 0;
+  emergencyLights.forEach(item => {
+    item.material.emissiveIntensity =
+      sideIsOn(item.color === 0xff1010 ? 'red' : 'blue') ? 5 : 0.05;
   });
 
-  roofEmergencyLights.forEach(light => {
-    light.material.emissiveIntensity =
-      isSideOn(light.side) ? 5 : 0.02;
+  emergencySpotlights.forEach(item => {
+    const side = item.color === 0xff0000 || item.color === 0xff1010
+      ? 'red'
+      : 'blue';
+
+    item.light.intensity = sideIsOn(side) ? 35 : 0;
   });
 }
 
