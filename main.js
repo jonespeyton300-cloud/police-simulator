@@ -4,7 +4,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // ==========================================
-// SCENE
+// PERFORMANCE SETTINGS
 // ==========================================
 
 const scene = new THREE.Scene();
@@ -20,19 +20,20 @@ const renderer = new THREE.WebGLRenderer({
 });
 
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-renderer.shadowMap.enabled = true;
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+
+// Disable expensive real-time shadows.
+renderer.shadowMap.enabled = false;
 document.body.appendChild(renderer.domElement);
 
 // ==========================================
 // WORLD LIGHTING
 // ==========================================
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 2));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555566, 1.8));
 
-const sun = new THREE.DirectionalLight(0xffffff, 2);
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
 sun.position.set(30, 50, 20);
-sun.castShadow = true;
 scene.add(sun);
 
 // ==========================================
@@ -180,34 +181,12 @@ const policeCar = new THREE.Group();
 scene.add(policeCar);
 policeCar.position.set(6, 0, 8);
 
-// Temporary vehicle while model loads
-function makeTemporaryCar() {
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(2.2, 1, 4.8),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-
-  body.position.y = 0.9;
-  policeCar.add(body);
-
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(1.9, 0.8, 2.2),
-    new THREE.MeshStandardMaterial({ color: 0x111111 })
-  );
-
-  roof.position.y = 1.75;
-  policeCar.add(roof);
-}
-
-makeTemporaryCar();
-
 // ==========================================
-// LIGHT VARIABLES
+// LIGHT SYSTEM VARIABLES
 // ==========================================
 
 let headlights = [];
-let emergencyLights = [];
-let emergencySpotlights = [];
+let emergencyLEDs = [];
 
 let headlightsOn = false;
 let emergencyLightsOn = false;
@@ -221,8 +200,11 @@ function getVehicleBounds(model) {
   model.updateWorldMatrix(true, true);
   policeCar.updateWorldMatrix(true, true);
 
-  const localBox = new THREE.Box3();
-  const corners = Array.from({ length: 8 }, () => new THREE.Vector3());
+  const box = new THREE.Box3();
+  const corners = Array.from(
+    { length: 8 },
+    () => new THREE.Vector3()
+  );
 
   model.traverse((child) => {
     if (!child.isMesh || !child.geometry) return;
@@ -231,11 +213,11 @@ function getVehicleBounds(model) {
       child.geometry.computeBoundingBox();
     }
 
-    const box = child.geometry.boundingBox;
-    if (!box || box.isEmpty()) return;
+    const b = child.geometry.boundingBox;
+    if (!b || b.isEmpty()) return;
 
-    const min = box.min;
-    const max = box.max;
+    const min = b.min;
+    const max = b.max;
 
     corners[0].set(min.x, min.y, min.z);
     corners[1].set(min.x, min.y, max.z);
@@ -249,24 +231,23 @@ function getVehicleBounds(model) {
     for (const corner of corners) {
       corner.applyMatrix4(child.matrixWorld);
       policeCar.worldToLocal(corner);
-      localBox.expandByPoint(corner);
+      box.expandByPoint(corner);
     }
   });
 
-  return localBox;
+  return box;
 }
 
 // ==========================================
-// LIGHT HELPERS
-// All accessory positions are in vehicle space.
+// LED CREATION
 // ==========================================
 
-function makeLightPanel(parent, x, y, z, width, height, depth, color) {
+function makeLED(x, y, z, width, height, depth, color, group = policeCar) {
   const material = new THREE.MeshStandardMaterial({
-    color,
+    color: color,
     emissive: color,
-    emissiveIntensity: 0,
-    roughness: 0.22,
+    emissiveIntensity: 0.05,
+    roughness: 0.2,
     metalness: 0.05
   });
 
@@ -282,34 +263,15 @@ function makeLightPanel(parent, x, y, z, width, height, depth, color) {
   );
 
   mesh.position.set(x, y, z);
-  parent.add(mesh);
+  group.add(mesh);
 
-  const entry = { mesh, material, color };
-  emergencyLights.push(entry);
+  const entry = {
+    mesh,
+    material,
+    color
+  };
 
-  return entry;
-}
-
-function makeLightSpot(parent, color, x, y, z, targetZ, distance, angle) {
-  const light = new THREE.SpotLight(
-    color,
-    0,
-    distance,
-    angle,
-    0.55,
-    1
-  );
-
-  light.position.set(x, y, z);
-  light.target.position.set(x, y, targetZ);
-  light.castShadow = false;
-
-  parent.add(light);
-  parent.add(light.target);
-
-  const entry = { light, color };
-  emergencySpotlights.push(entry);
-
+  emergencyLEDs.push(entry);
   return entry;
 }
 
@@ -323,45 +285,33 @@ function installHeadlights(bounds) {
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  const frontZ = bounds.min.z;
+  const frontZ = bounds.min.z - 0.025;
   const headlightY = bounds.min.y + height * 0.66;
-
-  // Keep the headlights near the outer front corners.
-  const headlightX = width * 0.32;
+  const headlightX = width * 0.34;
 
   for (const x of [-headlightX, headlightX]) {
-    // Small white lens positioned just in front of the vehicle.
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.05,
+      roughness: 0.2
+    });
+
     const lens = new THREE.Mesh(
       new RoundedBoxGeometry(
         width * 0.105,
-        height * 0.055,
+        height * 0.052,
         0.035,
         3,
-        0.012
+        0.01
       ),
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        emissive: 0xffffff,
-        emissiveIntensity: 0.35,
-        roughness: 0.2
-      })
+      material
     );
 
-    lens.position.set(x, headlightY, frontZ - 0.018);
+    lens.position.set(x, headlightY, frontZ);
     policeCar.add(lens);
 
-    const beam = makeLightSpot(
-      policeCar,
-      0xffffff,
-      x,
-      headlightY,
-      frontZ - 0.08,
-      frontZ - 30,
-      55,
-      Math.PI / 5
-    );
-
-    headlights.push({ lens, beam });
+    headlights.push({ lens, material });
   }
 
   updateVehicleLights();
@@ -375,15 +325,18 @@ function installRoofLightbar(bounds) {
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  // Slimmer than the earlier lightbar.
-  const barWidth = width * 0.54;
-  const barDepth = width * 0.075;
-  const baseHeight = height * 0.018;
+  // Low-profile lightbar proportions.
+  const barWidth = width * 0.58;
+  const barDepth = width * 0.085;
+  const baseHeight = height * 0.014;
   const lensHeight = height * 0.035;
 
-  // The lightbar sits just above the roof.
-  const roofY = bounds.max.y + height * 0.006;
-  const roofZ = (bounds.min.z + bounds.max.z) / 2;
+  const roofY = bounds.max.y + height * 0.004;
+
+  // Cabin-centered position, slightly toward the front.
+  const roofZ =
+    bounds.min.z * 0.40 +
+    bounds.max.z * 0.60;
 
   // Black mounting base.
   const base = new THREE.Mesh(
@@ -409,15 +362,15 @@ function installRoofLightbar(bounds) {
 
   policeCar.add(base);
 
-  // Small mounting feet.
+  // Mounting feet.
   for (const x of [-barWidth * 0.32, barWidth * 0.32]) {
     const foot = new THREE.Mesh(
       new RoundedBoxGeometry(
         barWidth * 0.055,
-        baseHeight * 0.75,
+        baseHeight * 0.8,
         barDepth * 0.55,
         2,
-        baseHeight * 0.15
+        0.006
       ),
       new THREE.MeshStandardMaterial({
         color: 0x08090b,
@@ -426,19 +379,14 @@ function installRoofLightbar(bounds) {
       })
     );
 
-    foot.position.set(
-      x,
-      roofY,
-      roofZ
-    );
-
+    foot.position.set(x, roofY, roofZ);
     policeCar.add(foot);
   }
 
-  // Six small LED sections.
+  // Three red modules and three blue modules.
   const moduleWidth = barWidth * 0.145;
-  const moduleDepth = barDepth * 0.68;
   const moduleHeight = lensHeight * 0.78;
+  const moduleDepth = barDepth * 0.68;
   const spacing = barWidth * 0.16;
 
   for (let i = 0; i < 6; i++) {
@@ -448,34 +396,31 @@ function installRoofLightbar(bounds) {
     const x = (i - 2.5) * spacing;
     const y = roofY + baseHeight + moduleHeight / 2;
 
-    // Dark module housing.
     const housing = new THREE.Mesh(
       new RoundedBoxGeometry(
-        moduleWidth * 1.08,
+        moduleWidth * 1.1,
         moduleHeight * 1.15,
-        moduleDepth * 1.08,
+        moduleDepth * 1.1,
         3,
         moduleHeight * 0.15
       ),
       new THREE.MeshStandardMaterial({
         color: 0x11151b,
-        metalness: 0.55,
-        roughness: 0.28
+        metalness: 0.5,
+        roughness: 0.3
       })
     );
 
     housing.position.set(x, y, roofZ);
     policeCar.add(housing);
 
-    // Colored LED lens.
-    makeLightPanel(
-      policeCar,
+    makeLED(
       x,
       y,
-      roofZ - moduleDepth * 0.08,
-      moduleWidth * 0.83,
-      moduleHeight * 0.72,
-      moduleDepth * 0.75,
+      roofZ - moduleDepth * 0.06,
+      moduleWidth * 0.82,
+      moduleHeight * 0.75,
+      moduleDepth * 0.8,
       color
     );
   }
@@ -484,11 +429,11 @@ function installRoofLightbar(bounds) {
   for (const x of [-barWidth * 0.49, barWidth * 0.49]) {
     const cap = new THREE.Mesh(
       new RoundedBoxGeometry(
-        moduleWidth * 0.35,
+        moduleWidth * 0.3,
         lensHeight * 0.65,
-        barDepth * 0.7,
+        barDepth * 0.65,
         3,
-        0.01
+        0.008
       ),
       new THREE.MeshStandardMaterial({
         color: 0x11151b,
@@ -508,44 +453,35 @@ function installRoofLightbar(bounds) {
 }
 
 // ==========================================
-// FRONT GRILLE EMERGENCY LIGHTS
+// FRONT GRILLE LIGHTS
 // ==========================================
 
-function installFrontGrilleLights(bounds) {
+function installFrontLights(bounds) {
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  const frontZ = bounds.min.z - 0.035;
+  const frontZ = bounds.min.z - 0.045;
   const grilleY = bounds.min.y + height * 0.43;
 
-  const positions = [
-    { x: -width * 0.19, color: 0xff1010, side: 'red' },
-    { x: width * 0.19, color: 0x075dff, side: 'blue' }
-  ];
+  makeLED(
+    -width * 0.19,
+    grilleY,
+    frontZ,
+    width * 0.09,
+    height * 0.045,
+    0.035,
+    0xff1010
+  );
 
-  for (const item of positions) {
-    makeLightPanel(
-      policeCar,
-      item.x,
-      grilleY,
-      frontZ,
-      width * 0.095,
-      height * 0.055,
-      0.045,
-      item.color
-    );
-
-    makeLightSpot(
-      policeCar,
-      item.color,
-      item.x,
-      grilleY,
-      frontZ - 0.06,
-      frontZ - 18,
-      24,
-      Math.PI / 3
-    );
-  }
+  makeLED(
+    width * 0.19,
+    grilleY,
+    frontZ,
+    width * 0.09,
+    height * 0.045,
+    0.035,
+    0x075dff
+  );
 }
 
 // ==========================================
@@ -556,58 +492,47 @@ function installRearLights(bounds) {
   const width = bounds.max.x - bounds.min.x;
   const height = bounds.max.y - bounds.min.y;
 
-  const rearZ = bounds.max.z + 0.035;
-  const rearY = bounds.min.y + height * 0.62;
+  const rearZ = bounds.max.z + 0.045;
+  const rearY = bounds.min.y + height * 0.63;
 
-  const positions = [
-    { x: -width * 0.30, color: 0x075dff, side: 'blue' },
-    { x: width * 0.30, color: 0xff1010, side: 'red' }
-  ];
+  makeLED(
+    -width * 0.30,
+    rearY,
+    rearZ,
+    width * 0.09,
+    height * 0.045,
+    0.035,
+    0x075dff
+  );
 
-  for (const item of positions) {
-    makeLightPanel(
-      policeCar,
-      item.x,
-      rearY,
-      rearZ,
-      width * 0.10,
-      height * 0.055,
-      0.045,
-      item.color
-    );
-
-    makeLightSpot(
-      policeCar,
-      item.color,
-      item.x,
-      rearY,
-      rearZ + 0.06,
-      rearZ + 18,
-      24,
-      Math.PI / 3
-    );
-  }
+  makeLED(
+    width * 0.30,
+    rearY,
+    rearZ,
+    width * 0.09,
+    height * 0.045,
+    0.035,
+    0xff1010
+  );
 }
 
 // ==========================================
-// INSTALL ALL VEHICLE LIGHTS
+// INSTALL LIGHTING
 // ==========================================
 
 function installVehicleLights(model) {
-  emergencyLights = [];
-  emergencySpotlights = [];
+  emergencyLEDs = [];
 
   const bounds = getVehicleBounds(model);
 
   installHeadlights(bounds);
   installRoofLightbar(bounds);
-  installFrontGrilleLights(bounds);
+  installFrontLights(bounds);
   installRearLights(bounds);
 
-  updateVehicleLights();
   updateEmergencyStatus();
 
-  console.log('Explorer lighting installed using vehicle dimensions:', bounds);
+  console.log('Vehicle lighting installed.', bounds);
 }
 
 // ==========================================
@@ -615,10 +540,8 @@ function installVehicleLights(model) {
 // ==========================================
 
 function updateVehicleLights() {
-  headlights.forEach(({ lens, beam }) => {
-    lens.visible = true;
-    lens.material.emissiveIntensity = headlightsOn ? 2.5 : 0.15;
-    beam.light.intensity = headlightsOn ? 55 : 0;
+  headlights.forEach(({ material }) => {
+    material.emissiveIntensity = headlightsOn ? 2.5 : 0.05;
   });
 
   const status = document.getElementById('lightStatus');
@@ -644,57 +567,43 @@ function updateEmergencyStatus() {
 }
 
 // ==========================================
-// EMERGENCY FLASHING
+// EMERGENCY LIGHT FLASHING
+// No spotlights, no shadows, no extra lights.
 // ==========================================
 
 function updateEmergencyLights(time) {
-  if (!emergencyLights.length) return;
+  if (!emergencyLEDs.length) return;
 
   if (!emergencyLightsOn) {
-    emergencyLights.forEach(item => {
-      item.material.emissiveIntensity = 0;
+    emergencyLEDs.forEach(item => {
+      item.material.emissiveIntensity = 0.05;
     });
-
-    emergencySpotlights.forEach(item => {
-      item.light.intensity = 0;
-    });
-
     return;
   }
 
-  const phase = Math.floor(time / 180) % 2;
-  const fastPhase = Math.floor(time / 100) % 2;
-
-  const doubleFlash =
-    (time % 1000 < 120) ||
-    (time % 1000 > 240 && time % 1000 < 360);
-
-  function sideIsOn(side) {
+  const redOn = (sideTime) => {
     if (emergencyPattern === 0) {
-      return side === (phase === 0 ? 'red' : 'blue');
+      return Math.floor(sideTime / 180) % 2 === 0;
     }
 
     if (emergencyPattern === 1) {
-      return side === (fastPhase === 0 ? 'red' : 'blue');
+      return Math.floor(sideTime / 85) % 2 === 0;
     }
 
-    return doubleFlash &&
-      side === (
-        Math.floor(time / 500) % 2 === 0 ? 'red' : 'blue'
-      );
-  }
+    const phase = sideTime % 900;
+    return phase < 100 || (phase > 190 && phase < 290);
+  };
 
-  emergencyLights.forEach(item => {
-    item.material.emissiveIntensity =
-      sideIsOn(item.color === 0xff1010 ? 'red' : 'blue') ? 5 : 0.05;
-  });
+  const redActive = redOn(time);
+  const blueActive = redOn(time + 180);
 
-  emergencySpotlights.forEach(item => {
-    const side = item.color === 0xff0000 || item.color === 0xff1010
-      ? 'red'
-      : 'blue';
+  emergencyLEDs.forEach(item => {
+    const isRed =
+      item.color === 0xff1010;
 
-    item.light.intensity = sideIsOn(side) ? 35 : 0;
+    const active = isRed ? redActive : blueActive;
+
+    item.material.emissiveIntensity = active ? 5 : 0.04;
   });
 }
 
